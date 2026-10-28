@@ -1,0 +1,193 @@
+---
+title: Authentication and Access
+description: Set up secure access for your team, environments, and automation workflows. Use this page to configure credentials, permissions, and deployment-safe access patterns.
+---
+
+## Overview
+
+PerceptEye AI uses credential-based access so you can control who can act on behalf of your organization, which environments they can reach, and how automation is approved. This starter kit page gives you a safe default structure you can adapt to your own authentication model.
+
+Use this page to standardize API keys, rotate secrets, and separate human access from service access. The examples below are intentionally generic so you can customize them for your deployment.
+
+<Callout kind="alert">
+
+Store secrets outside your source code and never commit them to a repository. Use environment variables, secret managers, or your platform's encrypted configuration store.
+
+</Callout>
+
+## Authentication methods
+
+Choose the access pattern that best matches your workflow. For most teams, you will use a combination of user-issued tokens for local development and service credentials for automation.
+
+<Tabs>
+  <Tab title="API key" icon="key">
+    Use a long-lived API key for server-side integrations and internal tools.
+
+    ```
+    PERCEPTEYE_API_KEY=your-api-key-here
+    ```
+
+    This option is simple to deploy, but you should rotate it regularly and scope it to the minimum permissions required.
+  </Tab>
+  <Tab title="Bearer token" icon="shield">
+    Use a short-lived bearer token for user sessions or one-time automation.
+
+    ```
+    Authorization: Bearer your-token-here
+    ```
+
+    Prefer this pattern when you need expiration, revocation, or delegated access.
+  </Tab>
+  <Tab title="Service credential" icon="settings">
+    Use a dedicated service credential for CI pipelines, scheduled jobs, and deployment hooks.
+
+    ```
+    PERCEPTEYE_CLIENT_ID=your-client-id
+    PERCEPTEYE_CLIENT_SECRET=your-client-secret
+    ```
+
+    Keep service credentials separate from personal accounts so you can audit automation independently.
+  </Tab>
+</Tabs>
+
+## Access setup
+
+Follow these steps to create a secure baseline for your team.
+
+<Steps>
+  <Step title="Create an access scope" icon="lock">
+    Define what the credential can do. For example, limit a token to read-only telemetry, model deployment, or environment management.
+  </Step>
+  <Step title="Generate credentials" icon="download">
+    Create a key or token in your identity provider or admin console, then copy it into a secure secret store.
+  </Step>
+  <Step title="Bind credentials to an environment" icon="cloud">
+    Attach the secret to your staging or production environment so the application can read it at runtime.
+  </Step>
+  <Step title="Validate access" icon="check-circle">
+    Confirm the identity can reach the correct workspace, and verify that denied actions fail as expected.
+  </Step>
+</Steps>
+
+## Example configurations
+
+Use one configuration for local development and a separate one for production. Keep names consistent so your application can load them without custom logic.
+
+<CodeGroup tabs="JavaScript,Python,cURL">
+  ```javascript
+  import { PerceptEyeClient } from "@percepteye/sdk";
+
+  const client = new PerceptEyeClient({
+    apiKey: process.env.PERCEPTEYE_API_KEY,
+    baseUrl: "https://api.example.com",
+  });
+
+  async function main() {
+    const profile = await client.auth.me();
+    console.log("Authenticated as:", profile.email);
+  }
+
+  main().catch((error) => {
+    console.error("Authentication failed:", error.message);
+    process.exit(1);
+  });
+  ```
+
+  ```python
+  import os
+  import requests
+
+  api_key = os.environ["PERCEPTEYE_API_KEY"]
+
+  response = requests.get(
+      "https://api.example.com/v1/auth/me",
+      headers={
+          "Authorization": f"Bearer {api_key}",
+          "Content-Type": "application/json",
+      },
+      timeout=30,
+  )
+
+  response.raise_for_status()
+  print(response.json())
+  ```
+
+  ```bash
+  curl -s https://api.example.com/v1/auth/me \
+    -H "Authorization: Bearer $PERCEPTEYE_API_KEY" \
+    -H "Content-Type: application/json"
+  ```
+</CodeGroup>
+
+## Key and token fields
+
+Use the fields below as a checklist when you design your own access flow.
+
+<ParamField header="Authorization" param-type="string" required="true">
+  Send the bearer token in the `Authorization` header.
+</ParamField>
+
+<ParamField query="workspace_id" param-type="string" required="false">
+  Optionally restrict requests to a specific workspace when your application supports workspace routing.
+</ParamField>
+
+<ParamField body="expires_in" param-type="integer" required="false">
+  Set a token lifetime in seconds when you issue short-lived credentials.
+</ParamField>
+
+<ParamField body="scope" param-type="string" required="true">
+  Define the permissions granted to the token, such as `read:metrics` or `deploy:models`.
+</ParamField>
+
+## Team permissions
+
+Assign permissions by role so users get only the access they need. A simple model is easier to audit and safer to maintain.
+
+| Role | Typical access | Notes |
+|------|----------------|-------|
+| Admin | Full workspace control | Reserve for a small number of trusted operators. |
+| Developer | Deploy and inspect non-sensitive resources | Good for day-to-day engineering work. |
+| Viewer | Read-only access | Useful for support, analytics, and stakeholders. |
+| Automation | Scoped machine access | Use for scripts, jobs, and deployment pipelines. |
+
+## Secret management
+
+Treat secrets as operational data, not source code. You can store them in your cloud provider, CI system, or an external vault, as long as the secret never appears in logs or commits.
+
+<Callout kind="info">
+
+If you rotate a secret, update every dependent environment at the same time. Mixed versions often cause intermittent failures that are hard to trace.
+
+</Callout>
+
+## Troubleshooting
+
+If authentication fails, isolate the problem by checking identity, scope, and runtime configuration in that order.
+
+<ExpandableGroup>
+  <Expandable title="The token is rejected" default-open="true">
+    Confirm the value is present at runtime, has not expired, and matches the expected environment. Also verify that your deployment process did not trim whitespace or quotes.
+  </Expandable>
+  <Expandable title="The user can log in but cannot deploy" default-open="false">
+    Review role membership and environment permissions. A valid identity can still be blocked from production if the role lacks deploy access.
+  </Expandable>
+  <Expandable title="Local development works, but CI fails" default-open="false">
+    Check whether CI uses a different secret name, a different workspace, or a restricted service credential. Align the pipeline secret with the one expected by your application.
+  </Expandable>
+  <Expandable title="You need to revoke access quickly" default-open="false">
+    Disable the affected credential first, then issue a replacement and update every environment that depends on it.
+  </Expandable>
+</ExpandableGroup>
+
+## Next steps
+
+After you establish secure access, document your own environment names, rotation policy, and approval flow. If your team relies on multiple tools, add a short matrix that shows which credential is used for each workflow.
+
+<Columns cols={2}>
+  <Card title="Quickstart" icon="book-open" href="/quickstart" horizontal>
+    Set up a working integration with a minimal secure configuration.
+  </Card>
+  <Card title="Introduction" icon="arrow-right" href="/introduction" horizontal>
+    Return to the overview and adapt the starter kit structure for your product.
+  </Card>
+</Columns>

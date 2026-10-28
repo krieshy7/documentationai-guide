@@ -1,0 +1,286 @@
+---
+title: Integrations and Data Connections
+description: Connect PerceptEye AI to your production systems, model stack, and observability tools. This guide covers supported integrations and how data flows securely through the platform.
+---
+
+## Overview
+
+PerceptEye AI connects your systems, data pipelines, and serving stack so you can observe, train, and ship production agents with less manual work. This starter kit page gives you a practical template for documenting integrations, while keeping the content generic enough to adapt to your own environment.
+
+Use this guide to map where data enters the platform, how events move through the system, and which tools you can pair with your existing workflow. You can treat each connector as a building block in a larger deployment, rather than as a one-size-fits-all setup.
+
+<Callout kind="info">
+  This page is a starter kit template. Replace the example systems, endpoints, and event names with your own product details.
+</Callout>
+
+## Supported integration areas
+
+<Columns cols={2}>
+  <Card title="System connectors" icon="database" href="#system-connectors">
+    Connect application data sources, internal services, and external APIs.
+  </Card>
+  <Card title="Data ingestion" icon="download" href="#data-ingestion">
+    Stream batches or events into a normalized training and observability layer.
+  </Card>
+  <Card title="Observability integrations" icon="bar-chart" href="#observability-integrations">
+    Send logs, traces, and metrics to tools your team already uses.
+  </Card>
+  <Card title="Webhooks and events" icon="zap" href="#webhooks-and-events">
+    Trigger downstream workflows when key platform events occur.
+  </Card>
+</Columns>
+
+## Connection workflow
+
+<Steps>
+  <Step title="Identify the source systems" icon="database">
+    List the services, databases, queues, and model endpoints you want to connect. Start with the systems that already generate the most useful signal.
+  </Step>
+  <Step title="Choose the ingestion path" icon="download">
+    Decide whether you need streaming, batch imports, or event-based delivery. Match the method to your data freshness and reliability needs.
+  </Step>
+  <Step title="Map observability fields" icon="bar-chart">
+    Define the fields you want to collect, such as request IDs, latency, user journey markers, and model outputs.
+  </Step>
+  <Step title="Validate serving compatibility" icon="shield">
+    Confirm that your serving stack can accept the model format, inference protocol, and deployment cadence you plan to use.
+  </Step>
+  <Step title="Enable webhooks" icon="zap">
+    Subscribe your automation layer to lifecycle events so you can update dashboards, ticketing tools, or alerting systems.
+  </Step>
+</Steps>
+
+## System connectors
+
+PerceptEye-style integration programs usually start with a small set of stable connectors. You can begin with your core application database, event bus, and model endpoint, then expand into adjacent services as your workflow matures.
+
+| Connector type | Common use | Notes |
+| --- | --- | --- |
+| PostgreSQL | Historical product events | Useful for session replay, feature tracking, and backfills |
+| Object storage | Training artifacts | Store large logs, traces, or evaluation outputs |
+| Message queue | Real-time ingestion | Best for high-throughput event delivery |
+| REST API | Operational sync | Good for metadata, labels, and model status updates |
+
+## Data ingestion
+
+<CodeGroup tabs="JavaScript,Python,cURL">
+  ```javascript
+  const payload = {
+    source: "app-events",
+    received_at: "2026-10-28T12:30:00Z",
+    records: [
+      {
+        request_id: "req_8f31a2",
+        user_id: "user_2048",
+        route: "/recommendations",
+        latency_ms: 142,
+        model: "agent-v1"
+      }
+    ]
+  };
+
+  const response = await fetch("https://api.example.com/v1/ingest/events", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer YOUR_API_KEY"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  console.log(await response.json());
+  ```
+  ```python
+  import requests
+
+  payload = {
+      "source": "app-events",
+      "received_at": "2026-10-28T12:30:00Z",
+      "records": [
+          {
+              "request_id": "req_8f31a2",
+              "user_id": "user_2048",
+              "route": "/recommendations",
+              "latency_ms": 142,
+              "model": "agent-v1"
+          }
+      ]
+  }
+
+  response = requests.post(
+      "https://api.example.com/v1/ingest/events",
+      json=payload,
+      headers={
+          "Authorization": "Bearer YOUR_API_KEY",
+          "Content-Type": "application/json"
+      },
+      timeout=30,
+  )
+
+  print(response.json())
+  ```
+  ```bash
+  curl -X POST https://api.example.com/v1/ingest/events \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer YOUR_API_KEY" \
+    -d '{
+      "source": "app-events",
+      "received_at": "2026-10-28T12:30:00Z",
+      "records": [
+        {
+          "request_id": "req_8f31a2",
+          "user_id": "user_2048",
+          "route": "/recommendations",
+          "latency_ms": 142,
+          "model": "agent-v1"
+        }
+      ]
+    }'
+  ```
+</CodeGroup>
+
+The example above shows a simple ingestion pattern that you can adapt to your own payload schema. Keep your event shape consistent, and prefer stable identifiers so you can join telemetry across systems later.
+
+## Observability integrations
+
+<Tabs>
+  <Tab title="Metrics platform" icon="bar-chart">
+    Send latency, throughput, and success-rate metrics to your monitoring system so operators can spot regressions quickly.
+
+    ```json
+    {
+      "metric_name": "agent_latency_ms",
+      "value": 142,
+      "tags": {
+        "service": "recommendation-agent",
+        "environment": "production",
+        "region": "us-east-1"
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="Log aggregation" icon="database">
+    Forward structured logs so you can inspect prompt, response, and error context without opening your application database.
+
+    ```json
+    {
+      "level": "info",
+      "event": "inference_completed",
+      "request_id": "req_8f31a2",
+      "model": "agent-v1",
+      "duration_ms": 142
+    }
+    ```
+  </Tab>
+  <Tab title="Tracing" icon="zap">
+    Use distributed traces to follow a request from your frontend through orchestration and into model inference.
+
+    ```json
+    {
+      "trace_id": "trace_91b7c4",
+      "span_id": "span_44de10",
+      "service": "orchestrator",
+      "latency_ms": 142
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Serving stack compatibility
+
+You should document which runtime and deployment targets your model stack supports. Keep the compatibility section short, concrete, and easy to scan for operators.
+
+<Columns cols={3}>
+  <Card title="REST serving" icon="cloud" href="#rest-serving">
+    Best for straightforward request and response inference flows.
+  </Card>
+  <Card title="Batch jobs" icon="terminal" href="#batch-jobs">
+    Use when you need scheduled scoring or offline evaluation.
+  </Card>
+  <Card title="Streaming inference" icon="rocket" href="#streaming-inference">
+    Useful for low-latency pipelines that react to live events.
+  </Card>
+</Columns>
+
+### Example compatibility matrix
+
+| Target | Supported pattern | Typical use |
+| --- | --- | --- |
+| REST API | Synchronous inference | Chat, routing, scoring |
+| Batch worker | Scheduled evaluation | Offline analysis, retraining prep |
+| Stream processor | Event-driven updates | Live enrichment, alerts |
+
+## Webhooks and events
+
+<Callout kind="tip">
+  Keep webhook payloads small and signed. Include only the fields downstream systems need to act on the event.
+</Callout>
+
+Use webhooks when your team needs to react to platform changes in near real time. Common use cases include model promotion, connector health changes, and completed training runs. A webhook consumer should verify the signature, respond quickly, and queue heavier work for background processing.
+
+### Example webhook payload
+
+```json
+{
+  "event": "training.run.completed",
+  "timestamp": "2026-10-28T12:45:00Z",
+  "environment": "production",
+  "run_id": "run_7c21aa",
+  "status": "succeeded",
+  "artifact_url": "https://dashboard.example.com/runs/run_7c21aa"
+}
+```
+
+### Example consumer
+
+```javascript
+import express from "express";
+import crypto from "crypto";
+
+const app = express();
+app.use(express.json());
+
+app.post("/webhook", (req, res) => {
+  const signature = req.header("x-percepteye-signature") || "";
+  const body = JSON.stringify(req.body);
+  const expected = crypto
+    .createHmac("sha256", "YOUR_WEBHOOK_SECRET")
+    .update(body)
+    .digest("hex");
+
+  if (signature !== expected) {
+    return res.status(401).json({ error: "Invalid signature" });
+  }
+
+  console.log("Webhook received:", req.body.event);
+  res.status(200).json({ received: true });
+});
+
+app.listen(3000);
+```
+
+## Implementation checklist
+
+1. Inventory the systems you want to connect.
+2. Define the event schema for ingestion and observability.
+3. Confirm your serving stack compatibility.
+4. Add webhook handling for lifecycle events.
+5. Test one end-to-end flow before expanding to more systems.
+
+<ExpandableGroup>
+  <Expandable title="How do you secure data in transit?" default-open="true">
+    Use TLS for all external communication, restrict credentials to the smallest possible scope, and rotate secrets on a regular schedule.
+  </Expandable>
+  <Expandable title="What should you ingest first?" default-open="false">
+    Start with the data that helps you evaluate quality: request IDs, latency, user journey markers, and model output metadata.
+  </Expandable>
+  <Expandable title="How do you extend this template?" default-open="false">
+    Replace the sample endpoints, payloads, and service names with your production systems, then add any internal conventions your team uses.
+  </Expandable>
+</ExpandableGroup>
+
+## Next steps
+
+Once your integration layer is in place, document the exact systems, owners, and alerting rules for each connection. That makes it easier for your team to operate the platform and to onboard new services without redoing the basics.
+
+For deeper platform setup, pair this page with your quickstart, authentication, and changelog pages so readers can move from concept to implementation without losing context.

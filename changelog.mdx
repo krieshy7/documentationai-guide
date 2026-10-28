@@ -1,0 +1,229 @@
+---
+title: Changelog
+description: Track the latest product updates, improvements, and fixes for PerceptEye AI. Review recent changes to stay current with new capabilities and platform behavior.
+---
+
+## Overview
+
+This starter-kit changelog helps you track recent releases, feature updates, bug fixes, security improvements, and breaking changes for PerceptEye AI. Use it as a reusable structure for publishing release notes that are easy to scan and simple to customize.
+
+<Callout kind="info">
+
+This page is a template. Replace the sample entries with your own release history, dates, and version numbers.
+
+</Callout>
+
+## Recent releases
+
+<Columns cols={3}>
+  <Card title="Feature updates" icon="zap" href="#latest-release">
+    Highlight new capabilities, workflow upgrades, and product additions.
+  </Card>
+  <Card title="Bug fixes" icon="check-circle" href="#latest-release">
+    Summarize defects you resolved and any behavior changes users should expect.
+  </Card>
+  <Card title="Security improvements" icon="shield" href="#security-update">
+    Document hardening work, access controls, and policy changes.
+  </Card>
+</Columns>
+
+<Update label="2026-10-18" description="v1.8.0" tags={["feature", "improvement"]}>
+
+## New Features
+
+- Added release notes filters so you can scan entries by category.
+- Introduced a streamlined version timeline for recent product changes.
+- Added support for linking directly to a specific changelog entry.
+
+## Improvements
+
+- Improved page rendering for long release histories.
+- Refined changelog formatting to keep headings and lists consistent.
+- Made example entries easier to replace with your own release data.
+
+## Bug Fixes
+
+- Fixed inconsistent spacing in nested update sections.
+- Resolved an issue where long titles could wrap awkwardly on smaller screens.
+
+</Update>
+
+<Update label="2026-09-12" description="v1.7.0" tags={["feature", "security"]}>
+
+## New Features
+
+- Added a reusable release template for teams that publish updates regularly.
+- Expanded the sample structure to include feature notes, fixes, and security items.
+
+## Security Improvements
+
+- Clarified how to document authentication-related changes in release notes.
+- Added guidance for recording permission updates and audit-related changes.
+
+## Bug Fixes
+
+- Fixed display issues in the changelog header when descriptions were long.
+- Resolved a layout problem in older browsers that affected bullet spacing.
+
+</Update>
+
+<Update label="2026-08-05" description="v1.6.0" tags={["breaking", "bugfix"]}>
+
+## Breaking Changes
+
+- Standardized the recommended release-note structure for all new entries.
+- Removed outdated examples that relied on vague placeholder language.
+
+## Bug Fixes
+
+- Corrected broken anchor behavior for in-page release links.
+- Fixed an issue where empty update sections could render unexpectedly.
+
+## Improvements
+
+- Improved readability by grouping changes into clear sections.
+- Updated the sample copy to better match production documentation workflows.
+
+</Update>
+
+## How to write release notes
+
+<Steps>
+  <Step title="Choose the release" icon="calendar">
+    Start with a date and semantic version, such as `2026-10-18` and `v1.8.0`.
+  </Step>
+  <Step title="Group changes by type" icon="layout-list">
+    Use sections like New Features, Improvements, Bug Fixes, Security Improvements, and Breaking Changes.
+  </Step>
+  <Step title="Keep entries specific" icon="file-text">
+    Describe what changed, why it matters, and what users should do next.
+  </Step>
+  <Step title="Publish and link" icon="link">
+    Add an anchor link for each major release so readers can jump to the right update quickly.
+  </Step>
+</Steps>
+
+## Release workflow examples
+
+<Tabs>
+  <Tab title="Feature release" icon="rocket">
+
+    Use this format when you ship new product behavior or workflow enhancements.
+
+    ````markdown
+    ## v1.9.0
+
+    ### New Features
+
+    - Added workspace-level activity summaries.
+    - Introduced a new audit trail view for recent actions.
+
+    ### Improvements
+
+    - Reduced time to open large release histories.
+    - Simplified changelog navigation for returning readers.
+    ````
+
+  </Tab>
+  <Tab title="Security release" icon="shield">
+
+    Use this format when you need to document access control or policy updates.
+
+    ````markdown
+    ## v1.9.1
+
+    ### Security Improvements
+
+    - Tightened session handling for authenticated users.
+    - Added clearer guidance for token rotation and expiration.
+
+    ### Bug Fixes
+
+    - Fixed an edge case that could show stale permission labels.
+    ````
+
+  </Tab>
+  <Tab title="Breaking release" icon="alert-triangle">
+
+    Use this format when a change affects existing behavior or integrations.
+
+    ````markdown
+    ## v2.0.0
+
+    ### Breaking Changes
+
+    - Renamed deprecated settings to match the new configuration model.
+    - Updated migration guidance for existing environments.
+
+    ### Migration Notes
+
+    - Review your current settings before upgrading.
+    - Verify integrations after deployment.
+    ````
+
+  </Tab>
+</Tabs>
+
+## Fields to include in every entry
+
+| Field | What to include |
+|------|----------------|
+| Version | A semantic version such as `v1.8.0` |
+| Date | The release date in `YYYY-MM-DD` format |
+| Summary | A short sentence describing the release |
+| Tags | One or more categories such as feature, bugfix, security, or breaking |
+
+## Common writing tips
+
+- Write in active voice and explain what changed for your users.
+- Keep each bullet focused on a single outcome.
+- Avoid vague phrases like “miscellaneous updates” unless you add details elsewhere.
+- If a release changes behavior, call it out explicitly so readers know whether they need to act.
+
+<Callout kind="tip">
+
+A strong changelog is short, specific, and easy to scan. Readers should understand the impact of a release in under a minute.
+
+</Callout>
+
+## Advanced notes
+
+<Expandable title="What counts as a breaking change?" default-open="false">
+
+A breaking change alters an existing workflow, setting, endpoint, or expected output. If users must change their configuration or update their process, document it here.
+
+</Expandable>
+
+<Expandable title="How do you handle internal-only changes?" default-open="false">
+
+You can mention internal improvements when they affect reliability, observability, or release behavior. If the change does not affect users, keep it out of the public changelog.
+
+</Expandable>
+
+<Expandable title="What should you do before publishing?" default-open="false">
+
+Review dates, version numbers, and links. Then verify that each update includes clear headings and that any migration steps are easy to follow.
+
+</Expandable>
+
+## Next steps
+
+Use this page as a starter kit, then adapt it to your release process. You can add screenshots, migration notes, or version-specific links as your product grows.
+
+<CodeGroup tabs="Markdown,Bash">
+
+```markdown
+## v1.10.0
+
+### New Features
+
+- Added exportable release summaries.
+- Improved changelog filters for faster review.
+```
+
+```bash
+git tag v1.10.0
+git push origin v1.10.0
+```
+
+</CodeGroup>

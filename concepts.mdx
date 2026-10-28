@@ -1,0 +1,226 @@
+---
+title: Core Concepts
+description: Learn the key ideas behind PerceptEye AI so you can design, evaluate, and improve agents effectively. This page explains the platform model, shared truth layer, and continuous learning loop.
+---
+
+## Overview
+
+PerceptEye AI helps you build agents that improve through repeated practice, evaluation, and deployment. In this starter kit, you can use the concepts below as a flexible template for your own product documentation.
+
+The platform is organized around a continuous learning loop, a shared source of truth, and clear environment boundaries. Together, these ideas help you move from one-off agent demos to systems you can observe, tune, and ship with confidence.
+
+<Callout kind="info">
+
+This page is a starter kit template. Adapt the examples, names, and workflows to match your own product and deployment model.
+
+</Callout>
+
+## Core building blocks
+
+Use these concepts as the foundation for your documentation and your implementation plan.
+
+<Columns cols={3}>
+  <Card title="Continuous learning loop" icon="refresh-cw" href="#continuous-learning-loop">
+    Your agent improves through repeated simulation, evaluation, and deployment cycles.
+  </Card>
+  <Card title="Shared source of truth" icon="database" href="#shared-source-of-truth">
+    You keep workflows, signals, and outcomes aligned across teams and environments.
+  </Card>
+  <Card title="Environment boundaries" icon="shield" href="#environment-boundaries">
+    You separate development, staging, and production to control risk and rollout.
+  </Card>
+</Columns>
+
+## The continuous learning loop
+
+The continuous learning loop is the cycle that turns real usage into better behavior. You start by observing how an agent works, then simulate likely scenarios, evaluate results, and deploy the improved version.
+
+### How the loop works
+
+<Steps>
+  <Step title="Observe current behavior" icon="eye">
+    Capture traces, prompts, tool calls, and outcomes so you can see what the agent actually does.
+  </Step>
+  <Step title="Simulate representative workflows" icon="play-circle">
+    Replay realistic scenarios to test how the agent responds before you release changes.
+  </Step>
+  <Step title="Evaluate against signals" icon="bar-chart">
+    Compare results against business metrics, task success, safety checks, and human review.
+  </Step>
+  <Step title="Deploy and learn again" icon="rocket">
+    Roll out improvements, measure impact, and feed the new data back into the next cycle.
+  </Step>
+</Steps>
+
+### Why it matters
+
+A learning loop gives you a repeatable process instead of a one-time experiment. It helps you reduce guesswork, catch regressions early, and improve the agent with evidence.
+
+<CodeGroup tabs="TypeScript,Python,Bash">
+  ```typescript
+  type EvalSignal = {
+    name: string;
+    score: number;
+    threshold: number;
+  };
+
+  const signals: EvalSignal[] = [
+    { name: "task_completion", score: 0.92, threshold: 0.9 },
+    { name: "policy_compliance", score: 0.98, threshold: 0.95 },
+    { name: "tool_reliability", score: 0.89, threshold: 0.85 }
+  ];
+
+  const readyToDeploy = signals.every((signal) => signal.score >= signal.threshold);
+
+  console.log({ readyToDeploy });
+  ```
+  ```python
+  from dataclasses import dataclass
+
+  @dataclass
+  class EvalSignal:
+      name: str
+      score: float
+      threshold: float
+
+  signals = [
+      EvalSignal("task_completion", 0.92, 0.90),
+      EvalSignal("policy_compliance", 0.98, 0.95),
+      EvalSignal("tool_reliability", 0.89, 0.85),
+  ]
+
+  ready_to_deploy = all(signal.score >= signal.threshold for signal in signals)
+  print({"ready_to_deploy": ready_to_deploy})
+  ```
+  ```bash
+  export EVAL_RUN_NAME="weekly-agent-review"
+  export DEPLOYMENT_TARGET="staging"
+  ./run-evals --suite customer-support --min-score 0.90
+  ```
+</CodeGroup>
+
+## Shared source of truth
+
+A shared source of truth is the central record your team trusts for workflows, prompts, evaluation signals, and rollout status. It reduces drift between product, data, and operations teams.
+
+### What you store
+
+| Artifact | Purpose | Example |
+|---|---|---|
+| Workflow definitions | Describe the tasks the agent should perform | Intake, triage, follow-up |
+| Evaluation signals | Define success and failure criteria | Completion rate, policy score |
+| Environment metadata | Track where the agent runs | Dev, staging, production |
+| Release history | Record what changed and when | Prompt update, model swap |
+
+### How to use it
+
+Store the same workflow definitions in every environment, then layer environment-specific settings on top. That way, you can compare results without losing context.
+
+<Callout kind="tip">
+
+If you let teams edit workflows independently in each environment, it becomes harder to explain why results changed.
+
+</Callout>
+
+## Workflow simulation
+
+Simulation lets you test the agent against realistic scenarios before you expose changes to users. You can use recorded sessions, synthetic cases, or curated edge cases to check behavior.
+
+### Simulation patterns
+
+<Tabs>
+  <Tab title="Recorded sessions" icon="database">
+
+    Use past interactions to replay realistic user intent, tool usage, and failure cases.
+
+  </Tab>
+  <Tab title="Synthetic cases" icon="code">
+
+    Generate structured scenarios when you need broader coverage than historical data provides.
+
+  </Tab>
+  <Tab title="Curated edge cases" icon="alert-triangle">
+
+    Focus on rare inputs, policy boundaries, and high-risk outcomes that deserve extra attention.
+
+  </Tab>
+</Tabs>
+
+### Example scenario file
+
+Use a simple JSON format to keep simulation inputs readable and portable.
+
+````json
+{
+  "scenario_id": "order-refund-escalation",
+  "user_goal": "Request a refund for a delayed order",
+  "environment": "staging",
+  "expected_outcome": "Agent confirms eligibility and routes to support",
+  "signals": [
+    "policy_compliance",
+    "task_completion",
+    "handoff_quality"
+  ]
+}
+````
+
+## Evaluation signals
+
+Evaluation signals tell you whether the agent is doing the right thing. A signal can be quantitative, qualitative, or rule-based, depending on what you need to measure.
+
+### Common signal categories
+
+<Columns cols={2}>
+  <Card title="Task success" icon="check-circle" href="#evaluation-signals">
+    Measures whether the agent completed the user goal.
+  </Card>
+  <Card title="Safety and policy" icon="shield" href="#evaluation-signals">
+    Checks whether the response stayed within your boundaries.
+  </Card>
+  <Card title="Tool quality" icon="settings" href="#evaluation-signals">
+    Verifies whether external actions were accurate and reliable.
+  </Card>
+  <Card title="User experience" icon="users" href="#evaluation-signals">
+    Captures clarity, tone, and efficiency from the user perspective.
+  </Card>
+</Columns>
+
+### Practical guidance
+
+Use a small set of signals first, then expand once you know which metrics matter most. You can start with one business metric, one safety metric, and one operational metric.
+
+## Environment boundaries
+
+Environment boundaries help you control where changes are tested and where they are shipped. They also make it easier to compare behavior across stages of release.
+
+### Recommended boundary model
+
+- **Development:** fast iteration, local testing, and rough experiments
+- **Staging:** full evaluation, integration checks, and stakeholder review
+- **Production:** controlled rollout, monitoring, and incident response
+
+### Boundary checklist
+
+<ExpandableGroup>
+  <Expandable title="What should differ between environments?" default-open="true">
+
+    Keep the workflow definition stable, but vary credentials, traffic, and rollout permissions by environment.
+
+  </Expandable>
+  <Expandable title="What should stay the same?" default-open="false">
+
+    Keep evaluation criteria, naming conventions, and success metrics consistent so you can compare results fairly.
+
+  </Expandable>
+  <Expandable title="When should you promote changes?" default-open="false">
+
+    Promote only after simulation and evaluation show acceptable performance for your release criteria.
+
+  </Expandable>
+</ExpandableGroup>
+
+## Putting it all together
+
+A strong agent system uses a shared source of truth, simulates real workflows, measures the right signals, and respects environment boundaries. When you combine those pieces, you create a learning loop that is easier to debug and safer to improve.
+
+You can treat this page as a template. Replace the sample terms, add your own workflows, and connect each concept to the conventions your team uses every day.
