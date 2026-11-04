@@ -1,0 +1,160 @@
+---
+title: "Configuration"
+description: "Every environment variable both SDKs read, the Node plugin's config keys, serve() at a glance, the on_event vocabulary, and how to stop a running flywheel."
+---
+
+This page is the reference for everything you can set: every environment variable the Python SDK and the Node plugin read, the plugin's config keys, `serve()` at a glance, the events `on_event` reports, and the isolation and timeout bounds.
+
+The two you will set most often:
+
+```bash
+export PERCEPTEYE_API_KEY=pefw_...           # see Authentication
+export PERCEPTEYE_AGENT_MODE=production      # or leave unset for training
+```
+
+## Environment variables
+
+| variable | Python | Node | default | meaning |
+|:--|:--|:--|:--|:--|
+| `PERCEPTEYE_API_KEY` | yes | yes | none, then the key `login` stored | the agent key (`pefw_`). Without one, nothing leaves the machine. See [Authentication](/authentication) |
+| `PERCEPTEYE_CONTROL_PLANE_URL` | yes | yes | `https://launch.percepteye.ai/api/flywheel/v1` | the control plane this process talks to |
+| `PERCEPTEYE_AGENT_MODE` | yes | yes | `training` | `training` claims rollouts; `production` does not. See [Training and production](/modes) |
+| `PERCEPTEYE_INTROSPECT` | yes | yes | on | `0`, `false`, `no` or `off` disables agent discovery. A typo leaves it on |
+| `PERCEPTEYE_AGENT_ID` | `login` and `logout` only | yes | Node: `openclaw` | the agent name. Python's `serve()` and `attach()` take `agent_id=` instead |
+| `PERCEPTEYE_HOME` | yes | yes | `~/.percepteye` | where the SDK keeps its files: `credentials.json` in both; the Node plugin's turn capture and rollout outbox too |
+| `PERCEPTEYE_NO_PROMPT` | yes | no | unset | set to anything to stop `serve()` offering to create a key in a terminal |
+| `PERCEPTEYE_CAPTURE` | no | yes | on | `0`, `false`, `no` or `off` registers no hooks and records nothing, in either mode |
+| `PERCEPTEYE_CAPTURE_DIR` | no | yes | `$PERCEPTEYE_HOME/captured` | where production turns are captured |
+| `PERCEPTEYE_APPLY_PROMPT` | no | yes | on | `0` subscribes no prompt hook and does not fetch the prompt text |
+| `PERCEPTEYE_APPLY_MODEL` | no | yes | on | `0` subscribes no model hook and registers no provider |
+| `PERCEPTEYE_TRAJECTORY_DIR` | set by the SDK, per rollout | read only | unset | the rollout's own directory: append to `tool_calls.jsonl` there; any other file you leave is collected as an artifact. With it unset, the Node plugin writes no training-mode outcomes |
+| `PERCEPTEYE_ROLLOUT_ID` | set by the SDK, per rollout | no | | read it to tag your own logs |
+| `PERCEPTEYE_TURN_INPUT` | set by the SDK, for a command entrypoint | no | | the task, also on stdin |
+| `PERCEPTEYE_MC_API_KEY` | yes | yes | none | the customer-automation key (`mck_`) for the runs, eligibility and eval-sets client (on `main`, not in the 0.3.0 release) |
+
+In Python, `PERCEPTEYE_AGENT_MODE` and `PERCEPTEYE_INTROSPECT` are the two that change what the SDK does, and `PERCEPTEYE_NO_PROMPT` only silences the key offer; the rest are an address, credentials and locations. In Python, `PERCEPTEYE_INTROSPECT=0` and `introspect=False` are ANDed: either one off disables discovery.
+
+The goose hook that ships in the Python wheel (`agent-flywheel install-hooks`) also reads `PERCEPTEYE_AGENT_ID` (default `goose`), `PERCEPTEYE_HOME` for its local turns, and `PERCEPTEYE_CAPTURE=0` to turn recording off. See [CLI agents](/cli-agents).
+
+<Callout kind="info">
+
+The one variable the Python SDK will *write* is under your control: `apply_current_policy(set_env=True)` exports `OPENAI_BASE_URL` and `OPENAI_API_KEY`. It is off by default, because mutating the process environment is a side effect a caller should ask for.
+
+</Callout>
+
+## Node plugin config keys
+
+Scalar settings can be set in your OpenClaw config under `plugins.entries.agent-flywheel.config`, or in the environment. **Config wins over the environment**, because config is hot-reloaded and keeps a secret under the host's own secret handling, while a gateway reads its environment once at launch.
+
+| config key | environment variable | default |
+|:--|:--|:--|
+| `apiKey` | `PERCEPTEYE_API_KEY` | none, then the key `login` stored for this `agentId` |
+| `mode` | `PERCEPTEYE_AGENT_MODE` | `training` |
+| `agentId` | `PERCEPTEYE_AGENT_ID` | `openclaw` |
+| `controlPlaneUrl` | `PERCEPTEYE_CONTROL_PLANE_URL` | `https://launch.percepteye.ai/api/flywheel/v1` |
+| `capture` | `PERCEPTEYE_CAPTURE` | on |
+| `applyPrompt` | `PERCEPTEYE_APPLY_PROMPT` | on |
+| `applyModel` | `PERCEPTEYE_APPLY_MODEL` | on |
+| `introspect` | `PERCEPTEYE_INTROSPECT` | on |
+| `describe` | config only | none |
+| `rules` | config only | none |
+| `retentionTurns` | config only | none: keep every turn |
+| `executionSnapshot` | config only | none |
+
+**`introspect` is the one exception to "config wins".** A refusal from either side stands, as it does in the Python SDK. `PERCEPTEYE_HOME`, `PERCEPTEYE_CAPTURE_DIR` and `PERCEPTEYE_TRAJECTORY_DIR` are environment-only.
+
+One host setting is OpenClaw's, not the plugin's, and has no environment form: `plugins.entries.agent-flywheel.hooks.allowConversationAccess: true`. It lets the plugin read your agent's answer, describe your agent, and point it at the approved model. Every key is described on [Node plugin settings](/reference/node).
+
+## serve() at a glance
+
+`serve()` takes keyword arguments. The common ones:
+
+| argument | default | what it does |
+|:--|:--|:--|
+| `entrypoint` (positional) | | `"module:attr"`, an argv `list`, or a constructed object |
+| `agent_id` | required | the agent this process serves for; the key is bound to it |
+| `input_shape` | required | `"text"`, `"messages"` or `"dict"`. Declared, never inferred |
+| `mode` | `None` | beats `PERCEPTEYE_AGENT_MODE` |
+| `control_plane_url`, `api_key` | `None` | fall back to the environment, then the default URL or the stored key |
+| `artifacts_dir` | `None` | `./.percepteye-artifacts`, created if absent |
+| `isolation` | `"subprocess"` | or `"inprocess"` |
+| `concurrency` | `1` | rollouts in flight; a single claim asks for at most 16 |
+| `rollout_timeout_s` | `900.0` | the local ceiling on one rollout |
+| `adapters` | `"auto"` | `"auto"`, `[]`, or names: `"langchain"`, `"adk"` |
+| `introspect`, `describe` | `True`, `None` | agent discovery, and what to declare when nothing can read your agent |
+| `rules` | `None` | your Product's workflow rules; `None` sends nothing, `[]` retracts |
+| `max_rollouts` | `None` | stop after this many rollouts complete |
+| `on_event` | `None` | a synchronous event callback; see below |
+
+The rest (`transport`, `method`, `gate_flag`, `endpoint_env`, `command_output_adapter`, `execution_snapshot`, `attested_execution_components`, `volatile_command_values`, `reports_tool_calls`) are covered in the [Python API reference](/reference/python).
+
+**Everything that can be misconfigured is checked before the first rollout,** in this order: the mode resolves, the transport is one this contract speaks, a URL and a key exist, `/health` answers and supports `flywheel/1`, unroutable provider variables are reported, the entrypoint resolves, and the isolation mode fits the entrypoint. Each raises there, never mid-run.
+
+The claim long-poll (25 s), the requested lease (30 min) and the HTTP timeout (30 s) live on the transport and are not exposed through `serve()`.
+
+## Watching a flywheel: on_event
+
+`on_event` takes a `Callable[[str, dict], None]`. Wire it in production: it is the only way the delivery path is visible.
+
+```python
+fw.serve(..., on_event=lambda kind, ev: print(kind, ev))
+```
+
+| event | when | payload keys |
+|:--|:--|:--|
+| `claim_empty` | a successful claim returned no work | `poll_after_ms` |
+| `claim_failed` | the claim itself failed | `error` |
+| `rollout_start` | a claimed rollout began | `rollout_id` |
+| `rollout_reported` | the result was accepted | `rollout_id`, `grade`, `duplicate`, `exclusion` |
+| `rollout_crash` | the rollout raised; it was abandoned | `rollout_id`, `error` |
+| `report_failed` | the work happened, delivering it did not | `rollout_id`, `error` |
+| `artifact_failed` | collecting artifacts failed; the rollout is still reported, excluded from training | `rollout_id`, `name`, `error` |
+| `lease_lost` | the lease lapsed or was taken back | `rollout_id` |
+| `heartbeat_failed` | a renewal could not be delivered; two more beats remain | `rollout_id`, `error` |
+| `serve_failed` | the SDK itself failed while running a rollout; it is still reported | `rollout_id`, `error` |
+| `abandon_failed` | abandoning a crashed rollout could not be delivered | `rollout_id`, `error` |
+| `episode_plan` | how a rollout's budget was split | `rollout_id`, `budget_s`, `child_s`, `teardown_s`, `delivery_s` |
+| `harness_call_ceiling_inert` | the harness's per-call ceiling is longer than the time the episode leaves the agent; emitted once | `worst_case_call_s`, `child_s` |
+| `outcome_spooled` | the lease was lost before the deadline; the result is held in the outbox | `rollout_id`, `reason`, `path` |
+| `outcome_spool_failed` | the result could not be written to the outbox; delivery is attempted anyway | `rollout_id`, `error` |
+| `outcome_undeliverable` | the control plane refused the result in a way resending cannot fix; it is retired, never deleted | `rollout_id`, `status`, `error`, `path` |
+| `outcome_unrebuildable` | a held result could not be read back; it is moved aside | `rollout_id`, `error`, `path` |
+| `outcome_abandoned_in_outbox` | a held result is older than seven days and is no longer retried; it is kept | `rollout_id`, `age_s`, `path` |
+| `drain_failed` | delivering held results failed; they stay on disk and claiming continues | `error` |
+| `delivery_brake` | three deliveries in a row were refused permanently; the flywheel stops claiming | `consecutive_permanent_refusals`, `outbox` |
+
+**Wire `claim_empty` first.** Without a callback, an empty queue and a broken claim route look identical; `claim_empty` versus `claim_failed` is what tells them apart.
+
+**It runs synchronously, on three threads.** The serving thread emits `claim_*`, a pool worker emits the per-rollout kinds, and the heartbeat thread emits `lease_lost` and `heartbeat_failed`. A slow callback slows that thread, and the heartbeat thread renews every in-flight lease. Exceptions the callback raises are swallowed. Keep it cheap and non-blocking.
+
+## Stopping a running flywheel
+
+The mode is read at startup, so flipping `PERCEPTEYE_AGENT_MODE` does not stop a loop that is mid-flight. **`max_rollouts=N` is the only clean exit.** It counts completions, not successes, and the loop never claims more than it still intends to run.
+
+| you try | what happens |
+|:--|:--|
+| `SIGTERM` | the process ends. Nothing in the SDK catches `SIGINT` or `SIGTERM`; in-flight rollouts are orphaned, and the control plane reclaims them by lease expiry, up to 30 minutes |
+| Ctrl-C | not instant: in-flight rollouts drain first, for up to `rollout_timeout_s`. A subprocess child takes the same SIGINT, exits non-zero, and is recorded as `flywheel_crash` |
+| revoking the API key | does not stop it. A 401 is terminal per request, but the loop emits `claim_failed`, sleeps 5 s and continues |
+| the control plane | cannot stop it either: the claim response has no pause or drain field |
+
+Your production agent is unaffected by any of this. It is a different process calling different functions.
+
+## Isolation and timeouts
+
+| `isolation` | entrypoint it accepts | concurrency | timeout |
+|:--|:--|:--|:--|
+| `"subprocess"` (default) | `"module:attr"` or an argv list | any | real: the child is killed |
+| `"inprocess"` | an already-constructed object | 1 only | best-effort: a wedged thread keeps running |
+
+`"subprocess"` is the only mode with a real timeout, and the only one where two concurrent rollouts cannot see each other's endpoint or credential. What the child's environment contains is on [Security and network](/security).
+
+| bound | value |
+|:--|:--|
+| `rollout_timeout_s` | `900.0` by default |
+| the agent's actual budget | `min(rollout_timeout_s, server deadline − 10 s)` |
+| subprocess hard kill | budget + 15 s, then `SIGKILL` |
+| heartbeat interval | a third of the granted lease, floor 1 s |
+| lease reclaimed by the server | up to 30 minutes after the last beat |
+
+The agent is stopped 10 s short of the server deadline, so there is time to collect artifacts and land the report while the lease is still good. A lost lease, a crash, a blown budget or a late arrival comes back as a **typed exclusion** (`flywheel_crash`, `substrate_unavailable`, `credential_expired`, `deadline_exceeded`, `entrypoint_error`, `agent_exit_nonzero`), so a substrate fault is never scored as a bad decision by your agent.

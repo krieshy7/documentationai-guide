@@ -1,24 +1,21 @@
 ---
-title: Quickstart
-description: Run Agent Flywheel with the verified Python SDK, OpenClaw plugin, or DeepSeek Harness path, with clear boundaries for observation and workflow access.
+title: "Quickstart"
+description: "Install Agent Flywheel, get a key from your terminal, and watch your agent's first turn arrive in Mission Control in about five minutes."
 ---
 
-## Start your first Agent Flywheel integration
+## Five minutes to your first captured turn
 
-Choose the integration that matches your runtime and required access boundary.
+Pick your runtime. Every path ends the same way: your agent's real conversations arriving in Mission Control, ready to learn from, with its code unchanged.
 
-| Integration | Best fit | Capability boundary |
-| --- | --- | --- |
-| **Python SDK** | A Python agent exposed through `module:attr` | Serves the agent with `text`, `messages`, or `dict` input |
-| **OpenClaw** | A full workflow integration | Requires conversation access enabled as a separate host permission |
-| **DeepSeek Harness** | Observe-only tracking | Tracks `tools/result` outcomes without controlling rollouts or production turns |
-
-Setup flow: choose an integration, install its SDK or plugin, configure the required permission or credential, then start the integration using the instructions in its tab.
+| You need | |
+| --- | --- |
+| A free Mission Control workspace | Created for you during `login`, or at [launch.percepteye.ai](https://launch.percepteye.ai/onboard/agent-sdk). No credit card. |
+| Python agents | Python 3.10 to 3.13, built with LangChain, LangGraph or Google ADK for full model-call capture |
+| OpenClaw agents | Node 22.22.3 or later |
+| Anything else that exports OpenTelemetry | Nothing to install |
 
 <Tabs>
-<Tab title="Python SDK" icon="code">
-
-Use the Python SDK when your agent entry point is available as a `module:attr` reference. The SDK accepts `text`, `messages`, and `dict` input shapes.
+<Tab title="Python" icon="code">
 
 <Steps>
 <Step title="Install the SDK" icon="download">
@@ -27,34 +24,94 @@ Use the Python SDK when your agent entry point is available as a `module:attr` r
 pip install agent-flywheel
 ```
 
-</Step>
-
-<Step title="Configure credentials" icon="lock">
-
-Set `PERCEPTEYE_API_KEY` in the environment that starts your agent. Use a key with the `pefw` prefix.
+One runtime dependency, `httpx`. The LangChain, LangGraph and Google ADK adapters ship inside and bind automatically.
 
 </Step>
+<Step title="Get your key from the terminal" icon="key">
 
-<Step title="Serve your agent" icon="rocket">
+```bash
+agent-flywheel login --agent-id support-agent
+```
 
-Pass your agent's `module:attr` entry point, identifier, and input shape.
+It prints a short code and opens Mission Control with the code filled in. Sign up or sign in, check the code matches, and click **Approve**:
+
+```text
+To connect support-agent to PerceptEye, approve this code in your browser:
+
+    WDJB-MJHT
+
+Opened https://launch.percepteye.ai/...
+Sign up or sign in there, check the code matches, and click Approve.
+Waiting for approval (the code expires in 10 min; Ctrl-C to cancel)...
+Approved: a key for support-agent, saved to /home/you/.percepteye/credentials.json.
+```
+
+The key is stored readable only by you, for that one agent. In CI or a container, set it instead:
+
+```bash
+export PERCEPTEYE_API_KEY=pefw_...
+```
+
+</Step>
+<Step title="Wrap each turn your agent serves" icon="code">
+
+Call `attach()` once at startup, then wrap each turn:
 
 ```python
 import agent_flywheel as fw
 
-fw.serve("my_package.agent:build", agent_id="my-coding-agent", input_shape="text")
+px = fw.attach(agent_id="support-agent", trajectory_root="/var/lib/percepteye")
+
+def answer(conversation_id: str, user_text: str) -> str:
+    with px.turn(conversation_id=conversation_id, input_text=user_text) as turn_id:
+        reply = agent.invoke(user_text)          # your agent, unchanged
+    px.record_answer(turn_id, reply)             # its answer, as text
+    return reply
 ```
 
-Set `input_shape` to `text`, `messages`, or `dict` to match the input your agent accepts.
+Inside the turn, the adapters record every model call and tool call from the outside. Each turn is written under `trajectory_root` first, and that directory is yours.
+
+</Step>
+<Step title="Allow learning, then send" icon="upload">
+
+In Mission Control, tick **Let us learn from its conversations, including the message text**. Until then nothing is sent. No restart is needed: the SDK re-reads the permission on its own.
+
+Turns go up every 32 answered turns and at exit. To send now:
+
+```python
+px.flush()   # {'sent': 1, 'skipped': 0, 'failed': 0}
+```
+
+`'not_permitted': 1` means the permission is not on yet, and `px.upload_refusal` says why.
+
+</Step>
+<Step title="Start improving, then approve" icon="sparkles">
+
+On your agent's page, click **Start improving**. Each new version is tested against your agent's current best on conversations it has never seen. A version that wins waits for you in **Decisions**.
+
+</Step>
+<Step title="Run the approved version" icon="rocket">
+
+Ask which model to run on each turn, and rebuild your client only when the answer changes:
+
+```python
+from openai import OpenAI
+
+policy = fw.policy_source(agent_id="support-agent")
+
+snap = policy.current()                 # each turn; a cache read between refreshes
+if snap.changed:
+    client = OpenAI(base_url=snap.base_url, api_key=snap.api_key)
+    model = snap.model
+```
+
+Nothing polls in the background, so a promotion or a rollback reaches production with no redeploy.
 
 </Step>
 </Steps>
 
 </Tab>
-
 <Tab title="OpenClaw" icon="package">
-
-Use the OpenClaw plugin for the full workflow integration. Node `>=22.22.3` is required, and conversation access is a separate host permission from plugin installation.
 
 <Steps>
 <Step title="Install the plugin" icon="download">
@@ -63,44 +120,157 @@ Use the OpenClaw plugin for the full workflow integration. Node `>=22.22.3` is r
 openclaw plugins install @percepteye/agent-flywheel
 ```
 
-</Step>
-
-<Step title="Enable conversation access" icon="users">
-
-Enable conversation access in OpenClaw before using the full workflow. This host permission is separate from installing the plugin.
+No import, no wrapper process, no sidecar. Zero runtime dependencies.
 
 </Step>
-</Steps>
-
-<Callout kind="info">
-
-Plugin installation does not grant conversation access. Enable the host permission explicitly before using the full workflow.
-
-</Callout>
-
-</Tab>
-
-<Tab title="DeepSeek Harness" icon="bar-chart">
-
-Use the DeepSeek Harness plugin to track `tools/result` outcomes. Node `>=22.22.3` is required.
-
-<Steps>
-<Step title="Install the plugin" icon="download">
+<Step title="Get your key from the terminal" icon="key">
 
 ```bash
-dsh plugin --profile <name> add @percepteye/agent-flywheel
+npx @percepteye/agent-flywheel login --agent-id support-agent
 ```
 
-Replace `<name>` with the DeepSeek Harness profile name.
+Approve the code in your browser. The key is stored in `~/.percepteye/credentials.json`, the same file the Python SDK uses, and the plugin picks it up when neither its `apiKey` setting nor `PERCEPTEYE_API_KEY` is set.
+
+</Step>
+<Step title="Opt in and choose the mode" icon="settings">
+
+Add this to your OpenClaw config. Set `agentId` to the OpenClaw agent this install serves; it must match the name the key was made for.
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "agent-flywheel": {
+        "hooks": { "allowConversationAccess": true },
+        "config": { "agentId": "support-agent", "mode": "production" }
+      }
+    }
+  }
+}
+```
+
+`allowConversationAccess` lets the plugin read your agent's answer, describe the agent, and point it at the approved model. OpenClaw drops those hooks for non-bundled plugins without it.
+
+</Step>
+<Step title="Restart and allow learning" icon="play">
+
+Start OpenClaw the way you always do. The plugin's startup line says what state it is in. Then tick **Let us learn from its conversations, including the message text** in Mission Control; uploads start without another restart.
+
+</Step>
+<Step title="Approve, and it applies itself" icon="rocket">
+
+Approve a winner in **Decisions**. At its next start, a production install applies both halves: the approved system prompt and the model it was certified with.
 
 </Step>
 </Steps>
 
-<Callout kind="alert">
+</Tab>
+<Tab title="OpenTelemetry" icon="radio-tower">
 
-DeepSeek Harness is observe-only. It does not claim rollouts, capture production turns, or apply prompt or model changes.
+<Steps>
+<Step title="Add the agent in Mission Control" icon="layout-dashboard">
 
-</Callout>
+**New mission** → **Your AI agent** → **Also send us the traces your agent already exports** → name the agent → **Create agent and get my key**. The key is shown once.
+
+</Step>
+<Step title="Point your exporter at it" icon="radio-tower">
+
+```bash
+export PERCEPTEYE_CONTROL_PLANE_URL=https://launch.percepteye.ai/api/flywheel/v1
+export PERCEPTEYE_API_KEY=pefw_...
+export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="$PERCEPTEYE_CONTROL_PLANE_URL/agents/support-agent/otlp/v1/traces"
+export OTEL_EXPORTER_OTLP_TRACES_HEADERS="Authorization=Bearer%20$PERCEPTEYE_API_KEY"
+export OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf
+```
+
+`%20` is the space: OpenTelemetry reads these headers URL-encoded.
+
+</Step>
+<Step title="Allow learning" icon="shield-check">
+
+Turn on both of the agent's permissions. Until both are on, every push is answered `403` and nothing in it is read. Your spans need [GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) with message content.
+
+</Step>
+</Steps>
+
+Collector setup, status codes and limits are on [OpenTelemetry push](/opentelemetry).
 
 </Tab>
 </Tabs>
+
+<Callout kind="info">
+
+Running DeepSeek Harness, goose or a command-line agent? See [Choose an integration](/integrations) for the path that fits each one.
+
+</Callout>
+
+## Want practice tasks too?
+
+Live conversations show Mission Control what your agent already does. Practice tasks show it more: tasks written from your agent's own tools, worked through by your agent and graded. In Python, one call claims and runs them:
+
+```python
+import agent_flywheel as fw
+
+fw.serve(
+    "my_package.agent:build",   # an importable "module:attr" factory
+    agent_id="support-agent",
+    input_shape="text",
+    max_rollouts=8,             # bound the first run; also the clean exit
+    artifacts_dir="./flywheel-runs",
+    on_event=print,             # rollout_start, rollout_reported, claim_empty ...
+)
+```
+
+Then, on your agent's page in Mission Control: **Advanced** → **Generate tasks and run them**.
+
+```text
+rollout_start {'rollout_id': 'r-1'}
+rollout_reported {'rollout_id': 'r-1', 'grade': None, 'duplicate': False, 'exclusion': None}
+claim_empty {'poll_after_ms': 500}
+```
+
+<Callout kind="alert">
+
+Rollouts are real runs on your real credentials. Bound the first one with `max_rollouts`, and point `artifacts_dir` somewhere you don't mind it writing. Your agent must sample through an OpenAI-compatible client, because each rollout's gateway speaks that API.
+
+</Callout>
+
+## What just happened
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant App as Your app
+    participant SDK as agent-flywheel
+    participant Disk as trajectory_root
+    participant MC as Mission Control
+    App->>SDK: px.turn(...) wraps agent.invoke()
+    SDK->>Disk: write the turn (always)
+    SDK->>MC: upload batch (only once you allow it)
+    MC->>MC: learn, then test candidate vs. champion
+    MC-->>App: a winner waits in Decisions
+    App->>MC: policy_source().current()
+    MC-->>App: approved base_url + model
+```
+
+Every request in that diagram starts on your side. If Mission Control is unreachable, you lose the observation and nothing else: `attach()` never raises into your serving path.
+
+## Next
+
+<Columns cols={3}>
+  <Card title="Mission Control" icon="layout-dashboard" href="/mission-control">
+
+  Every screen and click path you will use.
+
+  </Card>
+  <Card title="Production capture" icon="activity" href="/production">
+
+  What is sent and when, personal data, retention.
+
+  </Card>
+  <Card title="Python SDK" icon="code" href="/python-sdk">
+
+  Every surface: `attach()`, `serve()`, adapters and policy.
+
+  </Card>
+</Columns>

@@ -1,229 +1,61 @@
 ---
-title: Changelog
-description: Track the latest product updates, improvements, and fixes for PerceptEye AI. Review recent changes to stay current with new capabilities and platform behavior.
+title: "Changelog"
+description: "What changed in each release of the Agent Flywheel SDKs. The Python SDK and the Node plugin ship the same version number in the same release."
 ---
 
-## Overview
-
-This starter-kit changelog helps you track recent releases, feature updates, bug fixes, security improvements, and breaking changes for PerceptEye AI. Use it as a reusable structure for publishing release notes that are easy to scan and simple to customize.
-
-<Callout kind="info">
-
-This page is a template. Replace the sample entries with your own release history, dates, and version numbers.
-
-</Callout>
-
-## Recent releases
-
-<Columns cols={3}>
-  <Card title="Feature updates" icon="zap" href="#latest-release">
-    Highlight new capabilities, workflow upgrades, and product additions.
-  </Card>
-  <Card title="Bug fixes" icon="check-circle" href="#latest-release">
-    Summarize defects you resolved and any behavior changes users should expect.
-  </Card>
-  <Card title="Security improvements" icon="shield" href="#security-update">
-    Document hardening work, access controls, and policy changes.
-  </Card>
-</Columns>
-
-<Update label="2026-10-18" description="v1.8.0" tags={["feature", "improvement"]}>
-
-## New Features
-
-- Added release notes filters so you can scan entries by category.
-- Introduced a streamlined version timeline for recent product changes.
-- Added support for linking directly to a specific changelog entry.
-
-## Improvements
-
-- Improved page rendering for long release histories.
-- Refined changelog formatting to keep headings and lists consistent.
-- Made example entries easier to replace with your own release data.
-
-## Bug Fixes
-
-- Fixed inconsistent spacing in nested update sections.
-- Resolved an issue where long titles could wrap awkwardly on smaller screens.
-
-</Update>
-
-<Update label="2026-09-12" description="v1.7.0" tags={["feature", "security"]}>
-
-## New Features
-
-- Added a reusable release template for teams that publish updates regularly.
-- Expanded the sample structure to include feature notes, fixes, and security items.
-
-## Security Improvements
-
-- Clarified how to document authentication-related changes in release notes.
-- Added guidance for recording permission updates and audit-related changes.
-
-## Bug Fixes
-
-- Fixed display issues in the changelog header when descriptions were long.
-- Resolved a layout problem in older browsers that affected bullet spacing.
-
-</Update>
-
-<Update label="2026-08-05" description="v1.6.0" tags={["breaking", "bugfix"]}>
-
-## Breaking Changes
-
-- Standardized the recommended release-note structure for all new entries.
-- Removed outdated examples that relied on vague placeholder language.
-
-## Bug Fixes
-
-- Corrected broken anchor behavior for in-page release links.
-- Fixed an issue where empty update sections could render unexpectedly.
-
-## Improvements
-
-- Improved readability by grouping changes into clear sections.
-- Updated the sample copy to better match production documentation workflows.
-
-</Update>
-
-## How to write release notes
-
-<Steps>
-  <Step title="Choose the release" icon="calendar">
-    Start with a date and semantic version, such as `2026-10-18` and `v1.8.0`.
-  </Step>
-  <Step title="Group changes by type" icon="layout-list">
-    Use sections like New Features, Improvements, Bug Fixes, Security Improvements, and Breaking Changes.
-  </Step>
-  <Step title="Keep entries specific" icon="file-text">
-    Describe what changed, why it matters, and what users should do next.
-  </Step>
-  <Step title="Publish and link" icon="link">
-    Add an anchor link for each major release so readers can jump to the right update quickly.
-  </Step>
-</Steps>
-
-## Release workflow examples
-
-<Tabs>
-  <Tab title="Feature release" icon="rocket">
-
-    Use this format when you ship new product behavior or workflow enhancements.
-
-    ````markdown
-    ## v1.9.0
-
-    ### New Features
-
-    - Added workspace-level activity summaries.
-    - Introduced a new audit trail view for recent actions.
-
-    ### Improvements
-
-    - Reduced time to open large release histories.
-    - Simplified changelog navigation for returning readers.
-    ````
-
-  </Tab>
-  <Tab title="Security release" icon="shield">
-
-    Use this format when you need to document access control or policy updates.
-
-    ````markdown
-    ## v1.9.1
-
-    ### Security Improvements
-
-    - Tightened session handling for authenticated users.
-    - Added clearer guidance for token rotation and expiration.
-
-    ### Bug Fixes
-
-    - Fixed an edge case that could show stale permission labels.
-    ````
-
-  </Tab>
-  <Tab title="Breaking release" icon="alert-triangle">
-
-    Use this format when a change affects existing behavior or integrations.
-
-    ````markdown
-    ## v2.0.0
-
-    ### Breaking Changes
-
-    - Renamed deprecated settings to match the new configuration model.
-    - Updated migration guidance for existing environments.
-
-    ### Migration Notes
-
-    - Review your current settings before upgrading.
-    - Verify integrations after deployment.
-    ````
-
-  </Tab>
-</Tabs>
-
-## Fields to include in every entry
-
-| Field | What to include |
-|------|----------------|
-| Version | A semantic version such as `v1.8.0` |
-| Date | The release date in `YYYY-MM-DD` format |
-| Summary | A short sentence describing the release |
-| Tags | One or more categories such as feature, bugfix, security, or breaking |
-
-## Common writing tips
-
-- Write in active voice and explain what changed for your users.
-- Keep each bullet focused on a single outcome.
-- Avoid vague phrases like “miscellaneous updates” unless you add details elsewhere.
-- If a release changes behavior, call it out explicitly so readers know whether they need to act.
-
-<Callout kind="tip">
-
-A strong changelog is short, specific, and easy to scan. Readers should understand the impact of a release in under a minute.
-
-</Callout>
-
-## Advanced notes
-
-<Expandable title="What counts as a breaking change?" default-open="false">
-
-A breaking change alters an existing workflow, setting, endpoint, or expected output. If users must change their configuration or update their process, document it here.
-
-</Expandable>
-
-<Expandable title="How do you handle internal-only changes?" default-open="false">
-
-You can mention internal improvements when they affect reliability, observability, or release behavior. If the change does not affect users, keep it out of the public changelog.
-
-</Expandable>
-
-<Expandable title="What should you do before publishing?" default-open="false">
-
-Review dates, version numbers, and links. Then verify that each update includes clear headings and that any migration steps are easy to follow.
-
-</Expandable>
-
-## Next steps
-
-Use this page as a starter kit, then adapt it to your release process. You can add screenshots, migration notes, or version-specific links as your product grows.
-
-<CodeGroup tabs="Markdown,Bash">
-
-```markdown
-## v1.10.0
-
-### New Features
-
-- Added exportable release summaries.
-- Improved changelog filters for faster review.
-```
+What changed in each release. `agent-flywheel` (Python) and `@percepteye/agent-flywheel` (Node) ship the same version number in the same release. The current version is **0.3.0**.
 
 ```bash
-git tag v1.10.0
-git push origin v1.10.0
+pip install -U agent-flywheel                   # upgrade the Python SDK
+npm view @percepteye/agent-flywheel version     # latest published Node plugin
 ```
 
-</CodeGroup>
+<Update label="2026-10-20" description="v0.3.0" tags={["feature", "security"]}>
+
+### New features
+
+- **`agent-flywheel login --agent-id <name>` gets an agent its key from the terminal.** It prints a short code, opens launch.percepteye.ai with the code filled in, and once you sign in and click **Approve**, stores the `pefw_` key in `$PERCEPTEYE_HOME/credentials.json` (mode 0600, written atomically). The Node plugin reads the same file. `agent-flywheel logout` forgets it.
+- **A stored key is used automatically.** The order is `api_key=`, then `PERCEPTEYE_API_KEY`, then the key stored for that agent on that control plane. `serve()`, `attach()`, `current_policy()`, `current_prompt()` and `policy_source()` say once when they use a stored key.
+- **`serve()` offers to create a key in a terminal.** With no key and a person at the terminal, it asks `Create one now (free)? [Y/n]`, runs the same login, and carries on. It never asks in CI, with `PERCEPTEYE_NO_PROMPT=1`, or without a terminal; there it raises as before.
+- **Neither SDK sends a `pefw_` key in a request body.** Any key found in a body, for example in a tool's output, is replaced with `pefw_[REDACTED]` before it leaves.
+
+### Changes
+
+- **Every refusal caused by a missing key says where a key comes from.** `serve()`'s error, the `current_policy()`, `current_prompt()` and `policy_source()` warnings, `attach()`'s `upload_refusal`, and `agent-flywheel install-hooks` / `status` now name `agent-flywheel login` and end with the sign-up address, `https://launch.percepteye.ai/onboard/agent-sdk`.
+
+</Update>
+
+<Update label="2026-10-13" description="v0.2.0" tags={["feature", "improvement", "bugfix", "breaking", "security"]}>
+
+### New features
+
+- **The control-plane URL has a default.** `control_plane_url=`, then `PERCEPTEYE_CONTROL_PLANE_URL`, then `https://launch.percepteye.ai/api/flywheel/v1`, each trimmed, with a blank value falling through. `serve()` no longer refuses a missing URL; the key is the only thing that can be missing. `agent-flywheel install-hooks` and `status` name the URL they resolved to.
+- **A second consent tier for what the model saw.** With an operator's model-content grant, the LangChain and Google ADK adapters observe each model call inside an `attach()` turn (system instructions, the whole input, the tool definitions offered, the answer) and every tool result, and the turn uploads it as one OpenTelemetry GenAI trace, `genai_trace`. Off by default and observe-only: without the grant nothing of it is recorded, not even to disk.
+- **`rules=` on `serve()` and `attach()`** declares the Product's workflow rules once, after registration. `None` sends nothing and `[]` retracts. A refusal costs only the rules, and a slow rulebook route never holds back startup.
+- **A withdrawn model is given back.** When the control plane answers `withdrawn: true`, `policy_source()` reverts to the snapshot it was constructed with (your own configuration) and reports it once as `changed`, with the new `PolicySnapshot.withdrawn` field set. `is_withdrawn()` is exported, and both `policy_source()` and `apply_current_policy()` log the withdrawal once. Before, a withdrawal was read as "keep what you run", and the agent stayed on the candidate a person had rolled back.
+
+### Changes
+
+- **Breaking: `on_change` now also fires on a withdrawal,** with an empty snapshot. A callback or turn loop that builds a client from the snapshot must check `snap.withdrawn` and go back to its own configuration.
+- **Breaking: your flywheel key opens only the control plane's own gateway.** A `pefw_` key goes to an endpoint only when the control plane names `PERCEPTEYE_API_KEY` for it and it sits at your control plane's origin. It is no longer a fallback credential for provider endpoints. `endpoint_kwargs()` takes `flywheel_key=` and `control_plane_url=`, and its `api_key=` stays your own credential for the endpoint. An endpoint with no `model` is no longer applied. A production agent pointed at a self-hosted endpoint keeps its own configuration until the control plane serves the gateway URL.
+- **The goose hook claims practice tasks only in training mode,** and only with a key set. An unreadable mode claims nothing. `install-hooks` and `status` say which applies.
+- **`attach(retention_turns=...)` refuses a value that is not a whole number 0 or more,** before capture starts. The Node plugin gains the same setting as `retentionTurns`.
+- **A bounded tool or error body keeps both ends** behind a marker that counts what it replaced, and an error body gets 4000 characters instead of 1000.
+- **Artifacts travel only in the rollout report.** The SDK no longer posts each artifact to a separate route.
+- **A per-process socket no longer changes the agent's execution identity,** so restarting an agent no longer invalidates a prepared run.
+- **The Prime adapter seals its kernel:** a harness snapshot requires its kernel virtualenv, Python path variables are removed from every environment it configures, and a rollout whose kernel failed to start is excluded as `substrate_unavailable`.
+
+### Fixes
+
+- **A `policy_source()` refresh that cannot reach the control plane is now a failed refresh:** `last_refresh_ok` goes `False` and `stale_for_s` grows while the last good snapshot stands. An outage used to report a fresh, healthy policy.
+- **A rollout's outcome is never lost:** every terminal path reports, and a model call that could consume a whole episode is bounded by a ceiling derived from the episode budget.
+
+</Update>
+
+<Update label="2026-09-15" description="v0.1.2, v0.1.1, v0.1.0">
+
+### First releases
+
+Released before this changelog existed. `v0.1.0` and `v0.1.1` were tagged on 2026-09-14 and `v0.1.2` on 2026-09-15. The Node plugin's first tag is `v0.1.2`.
+
+</Update>
