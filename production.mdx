@@ -1,0 +1,194 @@
+---
+title: "Production capture"
+description: "Record the conversations your agent serves, safely: what is sent and when, consent, personal data, retention, retries, and what happens when the control plane is down."
+---
+
+This page covers recording the turns your production agent already serves: what leaves your machine and when, the consent that gates it, how personal data is handled, and what stays on your disk.
+
+<CodeGroup tabs="Python,Node">
+
+```python
+import agent_flywheel as fw
+
+px = fw.attach(agent_id="support-agent", trajectory_root="/var/lib/percepteye")
+
+with px.turn(conversation_id=conv_id, input_text=user_text) as turn_id:
+    reply = agent.invoke(user_text)      # your agent, unmodified
+
+px.record_answer(turn_id, reply)         # after the scope closes: the answer exists now
+```
+
+```bash
+# The plugin captures served turns in production mode.
+export PERCEPTEYE_AGENT_MODE=production
+export PERCEPTEYE_API_KEY=pefw_...
+# and in your OpenClaw config:
+# plugins.entries.agent-flywheel.hooks.allowConversationAccess: true
+```
+
+</CodeGroup>
+
+## What is recorded
+
+<Tabs>
+<Tab title="Python" icon="code">
+
+`attach()` records each turn your agent serves: what the user asked (`input_text=`), every tool call and its [outcome](/outcomes), and the answer (`record_answer()`). The two text halves are yours to pass; no adapter can tell your end user's message apart from the rest of a model call.
+
+With the second permission on (see Consent, below), the LangChain, LangGraph and Google ADK adapters also observe each model call inside the turn: the system prompt, the whole conversation so far, the tool definitions and every tool result. The turn sends it as one OpenTelemetry GenAI trace (`genai_trace`).
+
+**It captures. It never reroutes.** Adapters bind with no endpoint at all, so attaching cannot re-point production traffic. No model call, response or tool result is changed, and nothing in `turn()` can fail the turn: if capture breaks, the turn still runs.
+
+</Tab>
+<Tab title="Node" icon="package">
+
+In production mode the plugin records each turn your agent serves: the user's message, and every tool call and its outcome. With `hooks.allowConversationAccess: true` it also records the answer and, with the second permission on, each run's model boundary from OpenClaw's `llm_input` and `agent_end` events, sent as one OpenTelemetry GenAI trace.
+
+A run it cannot reconstruct faithfully records no model boundary rather than a guessed one. The recording hooks return nothing, so no hook can change a tool result, and a recording failure costs the record, never the turn. On DeepSeek Harness the plugin records tool outcomes only.
+
+</Tab>
+</Tabs>
+
+## Consent: two permissions, both off by default
+
+A production turn carries your end users' messages, so nothing is sent until the agent's permissions are on. Until then, turns accumulate on your disk and go nowhere.
+
+| permission in Mission Control | what crosses once it is on |
+|:--|:--|
+| **Send us its conversations** | each turn's steps: the user's message, the tool calls and their outcomes, and your agent's answer |
+| **Include the message text** | what the model saw and said: the system prompt, the conversation so far, the tool definitions and every tool result. Without it, none of this is recorded, not even on your disk |
+
+Learning needs both. During setup they are one checkbox, **Let us learn from its conversations, including the message text**; afterwards the agent's page shows them separately. Only an organization admin can change them.
+
+**No restart is needed.** While the answer is no, the SDK re-reads the verdict on its flush cadence (a plain `GET /agents/{agent_id}/capture`) and starts uploading as soon as the permission is on. It never learns its permission by uploading.
+
+- `px.may_upload` is the live answer in Python, and `px.upload_refusal` is the sentence explaining a `False`.
+- `px.may_capture_model_content` and `px.model_content_refusal` do the same for what the model saw.
+- The second permission (the model-content tier) is granted only while exactly one active Product declares the agent. If the agent becomes shared, recording stops when the control plane refuses a trace, and resumes once the grant is back.
+
+If the control plane refuses an upload (a permission switched off, or a key that may not carry this agent's conversations), the SDK stops uploading, says why, keeps the turns on disk, and starts again once the permission is back.
+
+## When turns are sent
+
+| | Python | Node |
+|:--|:--|:--|
+| on a cadence | every 32 turns, on a short-lived background thread, the turns that have an answer | every 32 turns, without making any turn wait |
+| at exit | an `atexit` hook sends the rest, including turns that never recorded an answer | at gateway shutdown, the rest, including turns that never recorded an answer |
+| per request | at most 64 turns | at most 64 turns |
+
+In Python, `px.flush()` sends now. The network is never on your request path, and uploads never raise into your process. A turn that could not be sent stays on disk and goes with a later batch. Each batch carries an idempotency key, so a batch that arrives twice is stored once.
+
+<Callout kind="tip">
+
+In Python, a turn with no `record_answer()` is held back on every 32-turn flush and leaves only at `close()` or exit. Record the answer.
+
+</Callout>
+
+## Personal data
+
+The SDK sends what your agent saw and said as it was. **It masks nothing on your side.** The control plane scans everything it receives for email addresses, phone numbers, card numbers, US social security numbers and IP addresses before it stores it:
+
+- **In the tool-call records** sent beside each turn, a match is masked, as `[redacted:email]` for example.
+- **In the user's message, your agent's answer, and everything the model saw,** a match is kept as sent, because masking would change the conversation. The turn is marked as holding personal data and is **never learned from**.
+
+Your agent's page in Mission Control, its **Agent** tab, counts these turns under **What it has sent us to learn from**, with how many are kept but not learned from, and why. [Pushed OpenTelemetry traces](/opentelemetry) follow the same rule.
+
+## Retries and rate limits
+
+Every request to the control plane gets up to four attempts, with a 30-second timeout each.
+
+- **`429`** is always retried, after the server's `Retry-After` (at most 8 seconds), or after a short random backoff when there is none.
+- **`408`, `500`, `502`, `503`, `504`, and a connection that drops mid-request** are retried, except a claim for practice tasks: that is resent only when it never reached the control plane, because a claim that did may already have handed work out.
+- **Any other `4xx`** is final; sending it again would get the same answer.
+
+The control plane's limits are per organization, per minute: 240 turn uploads (each up to 64 turns), 240 practice-task claims, 600 practice-task results, and 600 OpenTelemetry pushes. Over a limit, the answer is `429` with `Retry-After`, and the SDK waits as above.
+
+## Durability
+
+**Captured turns are on disk before anything is sent.** Records are flushed, never fsynced: they survive your process dying (a crash, a `SIGKILL`), and a machine that loses power can lose the most recent ones. `fsync` would cost more per record than many of the tool calls being recorded.
+
+**Rollout results are spooled before the first send.** When the SDK runs practice tasks, each result is written to a durable outbox before it is posted, so a process killed mid-request still delivers. The next process over the same directory drains the outbox before it claims more work.
+
+- A refusal that resending cannot fix is retired, never deleted: the file is renamed out of the retry set and a warning names its path.
+- A held result older than seven days is no longer retried, and is kept.
+- No bearer credential is written there. The rollout's lease token is held only in memory.
+
+The Python outbox lives under your `artifacts_dir`; the Node plugin's under `$PERCEPTEYE_HOME/outbox/<agentId>/`.
+
+## What stays on your machine
+
+Uploading never deletes your copy. Nothing does unless you ask.
+
+<Tabs>
+<Tab title="Python" icon="code">
+
+Every turn is a directory under the `trajectory_root` you named. It is required and undefaulted for exactly this reason: retention should be a decision somebody made.
+
+```python
+px = fw.attach(agent_id="support-agent", trajectory_root="/var/lib/percepteye",
+               retention_turns=50_000)      # keep the most recent 50k turns
+
+px.prune(keep_last=10_000)                  # or prune yourself, when you choose
+px.prune(older_than_s=7 * 24 * 3600)
+```
+
+`retention_turns` prunes once per 256 turns, so the real ceiling is `retention_turns + 256`. `prune()` with no argument deletes nothing. Left alone, the directory grows by roughly 2.4 GB per million turns, more if your tool outputs are large.
+
+`attach(..., register=False)` makes no outbound connection at all and keeps capture entirely local.
+
+</Tab>
+<Tab title="Node" icon="package">
+
+Every turn is a directory, in the same on-disk format the Python SDK writes:
+
+```text
+$PERCEPTEYE_CAPTURE_DIR/<runId>/       # default ~/.percepteye/captured
+    turns.jsonl        {"kind":"task"|"answer","text","turn_id","conversation_id","task_id"}
+    conversation_id
+    task_id            # optional caller-authored case/work-item correlation
+    task_id.conflict   # present only when writers disagreed; task_id is then omitted
+    tool_calls.jsonl
+    genai_observation.jsonl   # only under the model-content tier
+```
+
+`PERCEPTEYE_CAPTURE_DIR` overrides the location; otherwise it is `$PERCEPTEYE_HOME/captured`. `"retentionTurns": 50000` in the plugin's config keeps the most recent 50,000 turns, pruning every 256 turns, and deletes turns already uploaded before turns still waiting to be sent. `PERCEPTEYE_CAPTURE=0` records nothing at all.
+
+</Tab>
+</Tabs>
+
+### What Mission Control keeps
+
+Nothing is deleted by default.
+
+- After your organization's retention window, 90 days unless an admin changes it, older content is also copied to an archive.
+- An admin can ask for content older than a number of days to be deleted: **Settings** → **Rollout retention**. Off, the default, deletes nothing. The card says whether that deletion is running for your organization yet. The record that the work happened stays; its content is removed. The archive copy is kept.
+- Each improvement round keeps the conversations it learned from and was tested on.
+
+## When the control plane is unreachable
+
+Your agent keeps serving. Recording carries on to disk, turns wait for a later batch, and your agent keeps the model and prompt it has. Nothing raises into your process because the control plane did not answer.
+
+**The policy is served stale, never dropped.** After its first success, Python's `policy_source()` keeps returning the last good snapshot when a refresh fails: `changed` stays `False`, `last_refresh_ok` goes `False`, and `snap.stale_for_s` counts the seconds past the refresh interval. Returning "nothing" instead would make your code rebuild against the base model, silently demoting production from the trained model.
+
+- Each refresh is one attempt with a one-second budget, made inside your `current()` call. No thread polls in the background.
+- Exactly one caller refreshes; concurrent turns are handed the cached snapshot rather than queueing.
+
+The Node plugin reads the approved pair once at startup. An unreachable control plane costs the improvement and nothing else: no answer, no change, no error.
+
+<Columns cols={3}>
+  <Card title="Human approval" icon="user-check" href="/approval">
+
+  What decides the model and prompt your agent runs.
+
+  </Card>
+  <Card title="Security and network" icon="shield" href="/security">
+
+  Every connection, opened from your side.
+
+  </Card>
+  <Card title="Configuration" icon="sliders-horizontal" href="/configuration">
+
+  Every variable and setting.
+
+  </Card>
+</Columns>

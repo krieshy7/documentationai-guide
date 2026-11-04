@@ -1,29 +1,54 @@
 ---
-title: Help Center
+title: "Help Center"
+description: "Answers, fixes and release notes for the Agent Flywheel SDKs, and where to report a bug or a security issue."
 ---
 
+Find an answer, fix what you are seeing, or reach the people who build the SDKs.
+
 <Columns cols={2}>
-  <Card title="FAQs" icon="help-circle" href="/help-center/faq/getting-started-auth" horizontal>
-    Common PerceptEye AI questions.
+  <Card title="FAQ" icon="circle-help" href="/help-center/faq" horizontal>
+
+  What we receive, who approves a new version, and Python or Node.
+
   </Card>
-  <Card title="Troubleshooting" icon="alert-triangle" href="/help-center/troubleshooting/app-not-responding" horizontal>
-    Fix PerceptEye AI issues fast.
+  <Card title="Troubleshooting" icon="wrench" href="/help-center/troubleshooting" horizontal>
+
+  Find the symptom, read the cause, apply the fix.
+
   </Card>
-  <Card title="Guides" icon="book-open" href="/help-center/guides/setup-autonomous-agent" horizontal>
-    Step-by-step tutorials for teams.
+  <Card title="Changelog" icon="history" href="/changelog" horizontal>
+
+  What changed in each release of both SDKs.
+
   </Card>
-  <Card title="Changelog" icon="clock" href="/changelog" horizontal>
-    Latest PerceptEye AI updates.
+  <Card title="Quickstart" icon="zap" href="/quickstart" horizontal>
+
+  Capture your agent's first turn and start improving.
+
   </Card>
 </Columns>
 
-## Contact Support
+## Get help
+
+Both SDKs are open source under the MIT license. Bugs and feature requests go to the repository for the SDK you run.
 
 <Columns cols={2}>
-  <Card title="Email Support" icon="mail" href="mailto:support@percepteye.ai">
-    Response within 24 hours.
+  <Card title="Python SDK issues" icon="bug" href="https://github.com/percepteye-ai/agent-flywheel/issues" horizontal>
+
+  `agent-flywheel` on PyPI: `serve()`, `attach()`, the goose hook and the CLI.
+
   </Card>
-  <Card title="Community" icon="users" href="https://community.percepteye.ai" target="_blank">
-    Connect with PerceptEye AI users.
+  <Card title="Node plugin issues" icon="bug" href="https://github.com/percepteye-ai/agent-flywheel-node/issues" horizontal>
+
+  `@percepteye/agent-flywheel` on npm: the OpenClaw and DeepSeek Harness plugin.
+
   </Card>
 </Columns>
+
+<Callout kind="alert">
+
+Report security vulnerabilities privately to **security@percepteye.ai**, not in a public issue.
+
+</Callout>
+
+When you open an issue, include the SDK version (`pip show agent-flywheel`, or the `version` in the plugin's `package.json`), the exact refusal or log line, and which mode the agent runs in.

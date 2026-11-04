@@ -1,67 +1,151 @@
 ---
-title: Agent Flywheel
-description: Capture agent work with runtime SDKs and plugins, then use Mission Control to generate, train, evaluate, and improve agents with approval controls.
+title: "Agent Flywheel"
+description: "Your agent gets better at its own job. It keeps running in your process, unchanged, while the model and prompt it uses keep improving on its own real work."
 ---
 
-## Improve agents from real work
+## Your agent, made better by its own work
 
-Capture agent activity in the runtime, send evidence to Mission Control, and approve evaluated improvements before release.
+Agent Flywheel turns the work your agent already does into training data, and hands back a better model and prompt for you to approve. Your agent keeps running in your process, behind your firewall, on your credentials. Its code does not change.
 
-<Image src="https://blob-cdn.documentation.ai/org-2ebb2ef5-dd91-493f-9938-283fbdb14c81/doc-d2a73d2e-4391-4446-a5c8-2d0b41b7c4c1/1774416384221-0wlxa0j3sb2i-Image-5.png?q=85&fm=auto&auto=compress%2Cformat" alt="Agent Flywheel workflow" width="800" height="400" />
+<Image src="https://raw.githubusercontent.com/percepteye-ai/agent-flywheel/main/docs/assets/flywheel-overview.gif" alt="Your agent (prompt, tools and model) sits inside your infrastructure. The SDK wraps it from the outside with zero lines changed inside. Outcomes go out, a trained policy comes back, and the model row flips from your model to one trained on this agent's own work." width="1280" height="720" />
 
-```text
-Agent runtime → SDK/plugin capture → outbound evidence → Mission Control: tasks → grading → training → evaluation → approval
+## Ship it
+
+Pick the line that matches where your agent runs. Each one gets you to a recording agent; the [Quickstart](/quickstart) takes it the rest of the way.
+
+<CodeGroup tabs="Python,OpenClaw,DeepSeek Harness,OpenTelemetry">
+
+```bash
+pip install agent-flywheel
+agent-flywheel login --agent-id support-agent
 ```
 
-Mission Control runs the task, grading, training, evaluation, and approval workflow server-side. Local SDKs and plugins capture and send evidence; they do not manage rollout approval.
+```bash
+openclaw plugins install @percepteye/agent-flywheel
+npx @percepteye/agent-flywheel login --agent-id support-agent
+```
+
+```bash
+dsh plugin --profile <name> add @percepteye/agent-flywheel
+```
+
+```bash
+export PERCEPTEYE_CONTROL_PLANE_URL=https://launch.percepteye.ai/api/flywheel/v1
+export PERCEPTEYE_API_KEY=pefw_...   # from Mission Control
+export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="$PERCEPTEYE_CONTROL_PLANE_URL/agents/support-agent/otlp/v1/traces"
+export OTEL_EXPORTER_OTLP_TRACES_HEADERS="Authorization=Bearer%20$PERCEPTEYE_API_KEY"
+export OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf
+```
+
+</CodeGroup>
+
+Then, in Python, one call at startup records every turn your agent serves:
+
+```python
+import agent_flywheel as fw
+
+px = fw.attach(agent_id="support-agent", trajectory_root="/var/lib/percepteye")
+
+with px.turn(conversation_id=conv_id, input_text=user_text) as turn_id:
+    reply = agent.invoke(user_text)          # your agent, unchanged
+px.record_answer(turn_id, reply)
+```
+
+<Callout kind="tip">
+
+No key yet? Everything still works locally. Without a key the SDK records to your disk and sends nothing, so you can try it before you sign up.
+
+</Callout>
+
+## The loop in one picture
+
+```mermaid
+flowchart LR
+    subgraph yours["Your infrastructure"]
+        A["Your agent<br/>(unchanged)"] --> S["SDK or plugin<br/>records every turn"]
+    end
+    subgraph mc["Mission Control (hosted by PerceptEye)"]
+        T["Write tasks<br/>from your tools"] --> G["Grade<br/>every rollout"]
+        G --> TR["Train<br/>on this agent's work"]
+        TR --> E["Test candidate<br/>vs. champion"]
+    end
+    S -- "outcomes and turns<br/>(outbound only)" --> T
+    E --> D{"A person approves<br/>in Decisions"}
+    D -- "approved model + prompt" --> A
+```
+
+Every arrow that crosses into Mission Control is a request your process makes. Nothing dials in, so there is no inbound port, public DNS record or certificate to manage.
 
 <Columns cols={3}>
-  <Card title="1. Capture" icon="code" href="/integrations">
+  <Card title="1. Capture" icon="eye" href="/integrations">
 
-  Runtime SDKs and plugins collect agent activity and tool evidence.
-
-  </Card>
-  <Card title="2. Improve" icon="settings" href="/concepts">
-
-  Mission Control turns captured evidence into tasks, grades results, and trains agents.
+  The SDK or plugin records what your agent did: every tool call as `ok`, `failed` or `unknown`, plus the turns you allow it to send.
 
   </Card>
-  <Card title="3. Approve" icon="check-circle" href="/quickstart">
+  <Card title="2. Improve" icon="sparkles" href="/concepts">
 
-  Mission Control evaluates candidate changes and manages approval before promotion.
+  Mission Control writes tasks from your agent's real tools, grades every run, and trains a policy on this agent's own trajectories.
+
+  </Card>
+  <Card title="3. Approve" icon="user-check" href="/approval">
+
+  Each candidate is tested against the model you run today. Nothing reaches your users until a person approves it.
 
   </Card>
 </Columns>
 
-### Responsibilities
+## What it costs to integrate
 
-| Component | Responsibility |
+| | |
 | --- | --- |
-| Runtime | Runs the agent and produces activity and tool evidence. |
-| Mission Control | Handles server-side tasks, grading, training, evaluation, and approval. |
-| Agent Skill | Lets operators manage server-side training from an agent workflow. |
+| Lines changed inside your agent | **0**. Adapters bind from the outside. |
+| Integration code | **1 import and 1 call** in Python, or **one plugin install** in Node |
+| Runtime dependencies | **1** in Python (`httpx`), **0** in Node |
+| Inbound ports, containers, GPUs | **0, 0, 0**. Training runs on PerceptEye's GPUs. |
+| Languages | Python by import path, any CLI by argv, anything else through OpenTelemetry |
+| License | MIT, on [GitHub](https://github.com/percepteye-ai/agent-flywheel) |
+
+## What you get
+
+| You get | What it means |
+| --- | --- |
+| An agent that improves in place | A policy trained on this agent's own trajectories: its prompt, its tools, its failure modes. Not a generic model. |
+| Post-training you never operate | Task generation, grading, reinforcement learning and promotion gates run in Mission Control. |
+| A prompt that improves too | Training co-optimizes the system prompt and ships the approved one back beside the model. |
+| Honest evidence | A tool call nobody saw succeed is `unknown`, never rounded up to `ok`. A verifier abstains instead of learning from a guess. |
+| A person in charge | No threshold, scheduler or language model can promote a change. An operator clicks approve, and rolling back is the same click. |
 
 ## Explore
 
-<Columns cols={4}>
-  <Card title="Quickstart" icon="rocket" href="/quickstart">
+<Columns cols={3}>
+  <Card title="Quickstart" icon="zap" href="/quickstart">
 
-  Capture your first agent work and follow the initial workflow.
-
-  </Card>
-  <Card title="Concepts" icon="book-open" href="/concepts">
-
-  Understand how evidence moves through tasks, grading, training, and evaluation.
+  Install, get a key and see your first turn arrive in about five minutes.
 
   </Card>
-  <Card title="Integrations" icon="database" href="/integrations">
+  <Card title="Choose an integration" icon="signpost" href="/integrations">
 
-  Connect runtime SDKs and plugins to capture agent activity and tool evidence.
+  Python, OpenClaw, DeepSeek Harness, goose, any CLI or OpenTelemetry.
 
   </Card>
-  <Card title="Authentication" icon="lock" href="/authentication">
+  <Card title="How the loop works" icon="refresh-cw" href="/concepts">
 
-  Configure access for agents and workflow management.
+  Every beat of the flywheel, and who does the work at each one.
+
+  </Card>
+  <Card title="Mission Control" icon="layout-dashboard" href="/mission-control">
+
+  The hosted half: where tasks are written, models trained and changes approved.
+
+  </Card>
+  <Card title="Security and network" icon="shield" href="/security">
+
+  Outbound-only lanes, what is sent, and what never leaves your machine.
+
+  </Card>
+  <Card title="Python API" icon="code" href="/reference/python">
+
+  Every argument of `serve()`, `attach()` and `policy_source()`.
 
   </Card>
 </Columns>

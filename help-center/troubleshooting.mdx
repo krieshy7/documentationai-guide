@@ -1,0 +1,159 @@
+---
+title: "Troubleshooting"
+description: "Find the symptom, read the exact refusal or log line, apply the fix. Covers connecting, uploads, pushed traces, 429s, the approved version and startup."
+---
+
+Find what you see; each cause names the exact line the SDK or control plane prints, then the fix. When the control plane refuses something it says why, and both SDKs pass its words on.
+
+## Where to look first
+
+<Tabs>
+<Tab title="Python" icon="code">
+
+Read the refusals on the object `attach()` returned, and let your logging show the `agent_flywheel` logger and Python warnings. The package never installs a log handler of its own.
+
+```python
+import logging
+import agent_flywheel as fw
+
+logging.basicConfig(level=logging.INFO)    # or route "agent_flywheel" into your own logging
+
+px = fw.attach(agent_id="support-agent", trajectory_root="/var/lib/percepteye")
+print(px.may_upload, px.upload_refusal)
+print(px.may_capture_model_content, px.model_content_refusal)
+print(px.rulebook_refusal)                 # only when you passed rules=
+```
+
+For `serve()`, pass `on_event=lambda kind, ev: print(kind, ev)`. Without it, an empty queue (`claim_empty`) and a broken claim route (`claim_failed`) look identical.
+
+</Tab>
+<Tab title="Node" icon="package">
+
+Read the plugin's lines in your OpenClaw log; each starts with `[agent-flywheel]`. The startup line says which state the install is in. In production mode it reads:
+
+```text
+[agent-flywheel] mode=production (from environment): this install claims no rollout and starts no turn -- those hooks are not registered at all. It DOES capture the turns you serve. ...
+```
+
+and continues either with what it applies, or with `It applies NOTHING your control plane has approved; the lines above say why.` In training mode, a line beginning `not claiming rollouts:` names the one unmet condition.
+
+</Tab>
+</Tabs>
+
+## The dashboard never sees your agent connect
+
+- **No key reaches the agent.** Python `serve()` refuses to start with `an API key is required (pass api_key= or set PERCEPTEYE_API_KEY; ...)`, naming `agent-flywheel login` and the sign-up page. `attach()` keeps your agent running, records on disk, and `px.upload_refusal` begins `PERCEPTEYE_API_KEY is not set`. The Node plugin records on disk and sends nothing. Fix: set `PERCEPTEYE_API_KEY` (or `apiKey` in the plugin config), or run `agent-flywheel login` / `npx @percepteye/agent-flywheel login`. See [Authentication](/authentication).
+- **A stored key has expired.** `the key stored for agent '<id>' expired on <date>`. Fix: log in again for that agent.
+- **Registration failed.** Node logs `could not register '<agent>' with the control plane (<why>); turns are still captured locally.` Fix what the parenthesis names.
+- **The URL points somewhere else.** Unset, the URL is `https://launch.percepteye.ai/api/flywheel/v1`. For the goose hook in training mode with a key, `agent-flywheel status` prints `rollouts  claimed — training mode, from <url>`.
+- **Your network blocks it.** Every connection is outbound HTTPS to your control-plane URL. Allow it. See [Security and network](/security).
+- **The key was revoked, or is more than 180 days old.** Fix: **Agents** → your agent → **Get a new key**.
+
+## Nothing arrives in the dashboard
+
+- **Nothing has been sent yet.** Turns go in batches: every 32 turns, and at process exit (Python) or gateway stop (Node). In Python, `px.flush()` sends now.
+- **`production capture is not enabled for this agent`.** Fix: give the agent permission in [Mission Control](/mission-control). No restart is needed; the SDKs ask again before each batch.
+- **`this key is bound to a different flywheel`.** The agent id your code reports and the name the key was made for differ. Fix: use the same id in both. Python: `attach(agent_id=...)`. Node: `agentId` or `PERCEPTEYE_AGENT_ID`, which defaults to `openclaw`.
+- **`this agent is not registered`.** The control plane has never heard from this agent. Fix: start it once with its key. `attach()` registers unless you passed `register=False`; the Node plugin registers at startup in production mode with a key.
+- **`attach(register=False) was asked for, so the control plane was never asked ...`.** Fix: drop `register=False`.
+- **`this flywheel key does not carry the 'turn.report' scope`.** The key was made before conversations could be uploaded, or without that permission. Fix: get a new key.
+
+## Conversations arrive, but there is nothing to learn from
+
+- **No message text was sent.** Learning needs the second permission and the model calls themselves.
+  - Python records model calls for LangChain, LangGraph and Google ADK agents only. For any other agent, [push its OpenTelemetry traces](/opentelemetry). `px.may_capture_model_content` is the live answer.
+  - Node records what the model saw only with `hooks.allowConversationAccess: true`. A run it cannot reconstruct faithfully, such as a second `llm_input` in one run or a message steered into the run, records none, and DeepSeek Harness records none.
+- **`this agent's production turns are attributed to no Product`.** Fix: the agent must belong to exactly one agent or product in Mission Control. Add it once; if two declare it, remove one.
+- **Your agent's page says turns are kept but not learned from:**
+  - *they contain personal data*: see [Production capture](/production).
+  - *they hold no final answer*: in Python, call `px.record_answer(turn_id, text)` for each turn. In Node, set `hooks.allowConversationAccess: true`; without it the plugin logs `capturing production turns WITHOUT the agent's answers`.
+- **Start improving says `flywheel_capture_has_no_decision_points`.** What has arrived holds no decision to learn from yet. Let more conversations arrive.
+
+## Pushed traces are refused
+
+- **`403 production_capture_not_enabled`** or **`403 model_content_capture_not_enabled`**. Fix: give the agent permission; both parts must be on. The rest of the message says which is off.
+- **`403` for an agent two products declare, or none.** Fix: the agent must belong to exactly one agent or product.
+- **A key made for another agent.** It is refused. Fix: send this agent's own key as the Bearer token.
+- **`415`.** Fix: send `application/x-protobuf` or `application/json`, gzipped or uncompressed.
+- **`400`.** The body is not an OTLP trace export. A trace file belongs in an upload, not a push.
+- **Pushes succeed but nothing is learned from.** The spans carry no message content. Switch it on in your instrumentation.
+
+Every status is on [OpenTelemetry push](/opentelemetry).
+
+## Requests fail with 429
+
+Your organization is over a rate limit, or is already sending as much at once as it may. Both SDKs wait and retry on their own, after `Retry-After` (capped at 8 seconds) or a short random backoff. If it keeps happening, send fewer, larger requests: let turns batch, and give a Collector's exporter a batch processor. A Collector that sends several requests at once gets `429` for each one past the first; `sending_queue: num_consumers: 1` on our exporter avoids that.
+
+## Your agent is not running the approved version
+
+- **It has not been approved, or is not serving yet.** Approving happens in **Decisions**. Until then, the answer is "keep what you run". See [Human approval](/approval).
+
+<Tabs>
+<Tab title="Python" icon="code">
+
+- **`apply_current_policy()` returned `{}`.** It returns `{}` for every reason it cannot act, and logs which on the `agent_flywheel` logger:
+  - `not reading the served policy for agent_id=...: PERCEPTEYE_API_KEY is not set ...`: no key.
+  - `NOT applying the served policy for this agent: the served model '...' is a stored-artifact reference`: a `gs://`, `s3://` or `file://` address, not a running endpoint.
+  - `NOT applying the served policy for this agent: no credential for its endpoint ...`: the control plane named no variable and sent no key, the variable it named is unset, or the endpoint is not at the control plane's own origin.
+  - `the control plane WITHDREW the policy it served ...`: a person rolled it back; your own configuration runs.
+- **`policy_source()` still serves the old model.** It refreshes about every five minutes, inside your `current()` calls. `snap.stale_for_s` above zero means refreshes are failing and the last answer stands. `policy_source(agent_id=...) will never refresh` means no key is configured.
+- **The prompt did not change.** The SDK never applies a prompt for you. `fw.prompt_decision(fw.current_prompt(agent_id=...)).reason` says why it may not be applied.
+- **`serve()` printed a policy but kept sampling the old model.** By design: practice tasks sample through the per-rollout gateway. Apply policies in your production agent.
+
+</Tab>
+<Tab title="Node" icon="package">
+
+- **It reads the approved version once, at startup.** Fix: restart the gateway after you approve.
+- **Only one half was applied.** The startup log says `the approved system prompt is NOT being applied: <reason>` or `the approved model is NOT being applied: <reason>`. When both land it says `the pair is intact`. The reasons:
+  - `prompt application is switched off (PERCEPTEYE_APPLY_PROMPT / applyPrompt)`, or the same for `PERCEPTEYE_APPLY_MODEL / applyModel`.
+  - `before_model_resolve is a conversation hook and this host drops it for non-bundled plugins unless you set plugins.entries.agent-flywheel.hooks.allowConversationAccess=true`.
+  - `this host exposes no provider registration (api.registerProvider is missing)`, or `registering the provider 'percepteye-flywheel' failed (...)`.
+  - `the served model "..." is a stored-artifact ...`: an archive address, not an endpoint.
+  - `no API key is configured, so the control plane is never asked and no hook is subscribed`.
+- **Several agents run in one gateway, and none is named.** The plugin applies nothing rather than guess: `nothing the control plane approves will be applied: this host runs <n> agents (...) and none of them is named ...`. Fix: set `agentId` to the OpenClaw agent id this install serves.
+- **One run was skipped.** Logged once per reason: `this is a subagent session`, `this is a scheduled (cron) session`, or `this run belongs to host agent "..."`. Both halves apply only to this agent's own served turns.
+
+</Tab>
+</Tabs>
+
+## The SDK will not start
+
+<Tabs>
+<Tab title="Python" icon="code">
+
+`serve()` checks everything before its first practice task and raises `ConfigurationError` naming the cause. `attach()` raises only for a mistake in its own arguments, never for a control-plane failure.
+
+| Message begins | Fix |
+| --- | --- |
+| `PERCEPTEYE_AGENT_MODE='...' is not a mode.` | set it to `training` or `production` (or another listed spelling) |
+| `an API key is required` | set `PERCEPTEYE_API_KEY`, pass `api_key=`, or run `agent-flywheel login` |
+| `control plane speaks [...], this SDK speaks flywheel/1` | upgrade: `pip install -U agent-flywheel` |
+| `describe= declares a description and introspect=False says to send none` | drop one of them |
+| `rules must be a list of strings, one rule per string` | pass a list, even for one rule |
+| `pass execution_snapshot or the deprecated harness_snapshot alias, not both` | keep `execution_snapshot` |
+| `no entrypoint found on ...` (`EntrypointError`) | pass `method="..."`, or a plain callable |
+| `[AdapterFrameworkAbsent] ...` (`RoutingNotInstallable`) | install the framework, or remove the adapter from `adapters=[...]` |
+| `attach() requires agent_id to match the production identifier grammar` | 1 to 255 characters, no `/`, `\`, `.` or `..`, no edge whitespace |
+| `attach() requires trajectory_root` | name the directory turns are written to |
+| `retention_turns must be a whole number of turns, 0 or more` | pass an `int`, or `None` |
+
+The `agent-flywheel` CLI prints the same message and exits `2`.
+
+</Tab>
+<Tab title="Node" icon="package">
+
+The plugin never stops your agent from starting. Instead:
+
+- **An unreadable mode degrades to `production`** and says so: `... is not a mode. ... Running in production mode until this is corrected; no rollouts will be claimed.` Fix the value of `mode` or `PERCEPTEYE_AGENT_MODE`.
+- **Training mode without the host opt-in claims nothing:** `not claiming rollouts: rollouts need the agent's ANSWER, which arrives on the 'agent_end' hook ...`. Fix: set `plugins.entries.agent-flywheel.hooks.allowConversationAccess: true`.
+- **Training mode without a key claims nothing:** `not claiming rollouts: training mode is set but no API key resolved`.
+- **A `describe`, `rules` or `retentionTurns` value it cannot use is dropped** with a warning naming the cause. The agent registers what was observed.
+
+</Tab>
+</Tabs>
+
+## Node: files in the outbox
+
+In training mode, a file left in `$PERCEPTEYE_HOME/outbox/<agentId>/` is a rollout result the control plane has not recorded yet; it is retried before every claim. A file renamed with `.refused-lease-lost`, `.refused-contract`, `.refused-400`, `.refused-404`, `.refused-409`, `.refused-422` or `.stale` was refused in a way resending cannot fix, and is kept, never deleted. The warning that renamed it names the cause and the path. `401` and `403` keep retrying: a reissued key delivers them. See [Node plugin settings](/reference/node).
+
+Still stuck? Open an issue from the [Help Center](/help-center) with the exact line you see.

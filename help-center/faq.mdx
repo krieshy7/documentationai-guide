@@ -1,0 +1,161 @@
+---
+title: "FAQ"
+description: "Short answers about what Agent Flywheel receives and keeps, how your agent gets better, using the SDKs, and choosing Python or Node."
+---
+
+Short answers, each with a link to the page that has the detail.
+
+## Your data
+
+<ExpandableGroup>
+<Expandable title="What do you receive?" default-open="false">
+
+Only what you switch on in [Mission Control](/mission-control).
+
+- **With the first permission:** each turn's steps: the user's message, the tool calls and their outcomes, and your agent's answer.
+- **With the second:** what the model saw and said: the system prompt, the conversation so far, the tool definitions and every tool result.
+- **If your agent runs practice tasks** in training mode: each task's result, with its tool calls and outcomes.
+- **A description of your agent** when it registers. `PERCEPTEYE_INTROSPECT=0` turns it off.
+
+Never your tools' source code, and never your credentials. See [Production capture](/production).
+
+</Expandable>
+<Expandable title="What do you keep, and for how long?" default-open="false">
+
+What your agent sends: its turns, its traces, and the results of practice tasks. Nothing is deleted by default.
+
+- After your organization's retention window, 90 days unless an admin changes it, older content is also copied to an archive.
+- An admin can ask us to delete content older than the window under **Settings** → **Rollout retention**. The record that the work happened stays; its content is removed, and the archive copy is kept. The setting says whether deletion runs for your organization yet.
+- Each improvement round keeps the conversations it learned from and was tested on.
+
+Your own copy on disk is yours: the `trajectory_root` you passed to `attach()`, or `~/.percepteye/captured` for the Node plugin. Nothing deletes it unless you set `retention_turns` or `retentionTurns`. See [Production capture](/production).
+
+</Expandable>
+<Expandable title="What do you do with personal data?" default-open="false">
+
+Everything we receive is scanned for email addresses, phone numbers, card numbers, US social security numbers and IP addresses. In tool-call records a match is masked. In messages, answers and what the model saw it is kept as sent, because masking would change the conversation, and that turn is never learned from. The SDKs mask nothing on your side. See [Production capture](/production).
+
+</Expandable>
+<Expandable title="Does my agent's code leave my machine?" default-open="false">
+
+No. Your agent runs where it runs today, on your credentials. What crosses is what the first answer lists, and every connection is opened from your side. See [Security and network](/security).
+
+</Expandable>
+<Expandable title="Do I need to open a port, run a container, or provide a GPU?" default-open="false">
+
+No. Nothing dials in to either SDK: every connection is opened from your side, so there is no inbound firewall rule, no public DNS record and no certificate. Improvement rounds run on our side. See [Security and network](/security).
+
+</Expandable>
+<Expandable title="Can my agent key end up in what you receive?" default-open="false">
+
+Neither SDK sends a `pefw_` key inside a request body: any it finds, for example in a tool's output, is replaced with `pefw_[REDACTED]` before it leaves. The key itself is sent as the `Authorization` header. See [Authentication](/authentication).
+
+</Expandable>
+</ExpandableGroup>
+
+## Getting better
+
+<ExpandableGroup>
+<Expandable title="How does my agent get better?" default-open="false">
+
+We learn from its real conversations. Each new version is tested against your agent's current best on conversations it has never seen, and a version that does better comes to you in **Decisions**. The next round starts from the best so far. See [How the loop works](/concepts).
+
+</Expandable>
+<Expandable title="Who decides what my users get?" default-open="false">
+
+You do. A new version reaches your agent only after a person approves it in **Decisions**, with an explicit approve or reject. A reply in a chat or a document is never read as an approval. Until then, your agent keeps the version it has. See [Human approval](/approval).
+
+</Expandable>
+<Expandable title="How does an approved version reach my agent?" default-open="false">
+
+As an endpoint and a system prompt your agent already knows how to use.
+
+- **Python:** `apply_current_policy()` or `policy_source()` hands you client arguments for the approved model, and `current_prompt()` with `prompt_decision()` hands you the approved prompt. Applying them is your code's decision.
+- **Node, production mode:** the plugin applies both at startup. Restart the gateway after you approve.
+
+See [Human approval](/approval) and the [Python API](/reference/python).
+
+</Expandable>
+<Expandable title="Can a bad version be taken back without a redeploy?" default-open="false">
+
+With `policy_source()`, yes. It refreshes inside your own calls, and when the control plane withdraws a policy the handle reports one `changed` snapshot with `withdrawn` set: go back to your own configuration. `apply_current_policy()` reads once, and the Node plugin reads once at startup, so both need a restart. See [Production capture](/production).
+
+</Expandable>
+<Expandable title="How is this different from an eval platform?" default-open="false">
+
+An eval platform measures. This also improves: each round produces a new version of your agent, tested against the current best, for you to approve.
+
+</Expandable>
+<Expandable title="What does unknown mean?" default-open="false">
+
+A tool call nobody observed succeeding or failing. It is never rounded up to `ok`, because a failure counted as a success would teach your agent that the failure was fine. When we learn, an `unknown` call counts neither way. See [Outcomes](/outcomes).
+
+</Expandable>
+</ExpandableGroup>
+
+## Using it
+
+<ExpandableGroup>
+<Expandable title="Do I have to change my agent?" default-open="false">
+
+No. In Python, the adapters observe LangChain, LangGraph and Google ADK calls with no Agent Flywheel code inside your agent; your serving code wraps each turn in `px.turn()`. In OpenClaw, the plugin loads beside your agent and needs one host setting, `hooks.allowConversationAccess: true`. See [Python SDK](/python-sdk) and [Node plugin](/node-plugin).
+
+</Expandable>
+<Expandable title="What if my agent is built some other way?" default-open="false">
+
+If it already exports OpenTelemetry traces with message content, [push them](/opentelemetry); nothing to install. A command-line agent in any language can run practice tasks through `serve()` with an argv list, and goose gets a hook with `agent-flywheel install-hooks`. See [CLI agents](/cli-agents).
+
+</Expandable>
+<Expandable title="What does it install?" default-open="false">
+
+The Python SDK has one runtime dependency, `httpx`, and supports Python 3.10 to 3.13. Adapters import their framework only when they bind. The Node plugin has zero runtime dependencies and needs Node 22.22.3 or later.
+
+</Expandable>
+<Expandable title="Where does the key come from?" default-open="false">
+
+From Mission Control when you connect the agent, or from your terminal with `agent-flywheel login --agent-id <name>` or `npx @percepteye/agent-flywheel login`. Each key belongs to one agent and expires after 180 days. See [Authentication](/authentication).
+
+</Expandable>
+<Expandable title="How do I stop it?" default-open="false">
+
+- **Python:** stop calling `attach()`, or pass `register=False` to keep capture on your disk only. `PERCEPTEYE_AGENT_MODE=production` makes `serve()` return at once, without opening a connection.
+- **Node:** `PERCEPTEYE_CAPTURE=0` registers no hook and records nothing. `PERCEPTEYE_APPLY_PROMPT=0` and `PERCEPTEYE_APPLY_MODEL=0` stop applying the approved prompt and model. `PERCEPTEYE_AGENT_MODE=production` claims no practice tasks.
+- **Either:** switching the agent's permission off in Mission Control stops uploads without touching your code.
+
+See [Training and production](/modes) and [Configuration](/configuration).
+
+</Expandable>
+<Expandable title="Are practice tasks safe to run?" default-open="false">
+
+A practice task is a real run: it executes your agent in your process tree, on your credentials, against whatever your tools talk to. Bound the first one with `serve(max_rollouts=8)`, and run practice tasks only where that is acceptable. See [Training and production](/modes).
+
+</Expandable>
+</ExpandableGroup>
+
+## Python or Node
+
+<ExpandableGroup>
+<Expandable title="Which one do I use?" default-open="false">
+
+The one that matches where your agent runs: the Python SDK for a Python agent or a command-line agent you launch yourself, the Node plugin for an OpenClaw or DeepSeek Harness agent. Never both for one agent. See [Choose an integration](/integrations).
+
+</Expandable>
+<Expandable title="Do they behave the same?" default-open="false">
+
+On the wire and on disk, yes: the same `flywheel/1` contract, the same turn directory format, the same consent rules, and the same four prompt-decision refusals with the same sentences. Two things differ by design.
+
+- **Who applies the approved version.** The Python SDK hands it to your code; the Node plugin applies the prompt and model itself in production mode.
+- **What a bad setting does.** Python raises at startup in front of you. The Node plugin never stops your agent from starting: it logs a warning and drops the bad value, and an unreadable mode degrades to `production`.
+
+</Expandable>
+<Expandable title="Can one key serve both?" default-open="false">
+
+A key belongs to one agent, whichever SDK uses it. The two login commands write the same file, `$PERCEPTEYE_HOME/credentials.json`, so a key stored by either is found by both. See [Authentication](/authentication).
+
+</Expandable>
+<Expandable title="What license are they under?" default-open="false">
+
+MIT. Report vulnerabilities privately to **security@percepteye.ai**.
+
+</Expandable>
+</ExpandableGroup>

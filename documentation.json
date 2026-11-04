@@ -1,5 +1,6 @@
 {
   "name": "PerceptEye AI",
+  "initialRoute": "introduction",
   "colors": {
     "light": {
       "brand": "#23E27D"
@@ -8,130 +9,111 @@
       "brand": "#6BE7A5"
     }
   },
+  "navbar": {
+    "actions": {
+      "primary": {
+        "title": "Get your key",
+        "link": "https://launch.percepteye.ai/onboard/agent-sdk"
+      },
+      "links": [
+        {
+          "title": "GitHub",
+          "link": "https://github.com/percepteye-ai/agent-flywheel"
+        },
+        {
+          "title": "percepteye.ai",
+          "link": "https://www.percepteye.ai"
+        }
+      ]
+    }
+  },
   "navigation": {
     "tabs": [
       {
         "tab": "Documentation",
-        "icon": "book",
+        "icon": "book-open",
         "groups": [
           {
             "group": "Getting Started",
             "icon": "rocket",
             "pages": [
-              {
-                "title": "Introduction",
-                "path": "introduction",
-                "icon": "home"
-              },
-              {
-                "title": "Quickstart",
-                "path": "quickstart",
-                "icon": "zap"
-              }
+              { "title": "Introduction", "path": "introduction", "icon": "house" },
+              { "title": "Quickstart", "path": "quickstart", "icon": "zap" },
+              { "title": "Mission Control", "path": "mission-control", "icon": "layout-dashboard" }
             ]
           },
           {
             "group": "Core Concepts",
-            "icon": "layers",
+            "icon": "lightbulb",
             "pages": [
-              {
-                "title": "Concepts",
-                "path": "concepts",
-                "icon": "star"
-              }
+              { "title": "How the loop works", "path": "concepts", "icon": "refresh-cw" },
+              { "title": "Outcomes", "path": "outcomes", "icon": "circle-check" },
+              { "title": "Training and production", "path": "modes", "icon": "toggle-right" },
+              { "title": "Human approval", "path": "approval", "icon": "user-check" }
             ]
           },
           {
-            "group": "Guides",
-            "icon": "compass",
+            "group": "Integrations",
+            "icon": "plug",
             "pages": [
-              {
-                "title": "Authentication",
-                "path": "authentication",
-                "icon": "lock"
-              }
+              { "title": "Choose an integration", "path": "integrations", "icon": "signpost" },
+              { "title": "Python SDK", "path": "python-sdk", "icon": "code" },
+              { "title": "Node plugin", "path": "node-plugin", "icon": "package" },
+              { "title": "CLI agents", "path": "cli-agents", "icon": "terminal" },
+              { "title": "OpenTelemetry push", "path": "opentelemetry", "icon": "radio-tower" }
             ]
           },
           {
-            "group": "Advanced",
-            "icon": "wrench",
+            "group": "Production",
+            "icon": "server",
             "pages": [
-              {
-                "title": "Integrations",
-                "path": "integrations",
-                "icon": "plug"
-              }
+              { "title": "Production capture", "path": "production", "icon": "activity" },
+              { "title": "Security and network", "path": "security", "icon": "shield" }
+            ]
+          },
+          {
+            "group": "Configure",
+            "icon": "settings",
+            "pages": [
+              { "title": "Authentication", "path": "authentication", "icon": "key-round" },
+              { "title": "Configuration", "path": "configuration", "icon": "sliders-horizontal" }
             ]
           }
         ]
       },
       {
-        "tab": "API Reference",
+        "tab": "SDK Reference",
         "icon": "code",
         "groups": [
           {
-            "group": "Endpoints",
-            "openapi": "api-reference/openapi.yaml",
-            "pages": []
+            "group": "Reference",
+            "pages": [
+              { "title": "Python API", "path": "reference/python", "icon": "code" },
+              { "title": "Node plugin settings", "path": "reference/node", "icon": "package" },
+              { "title": "flywheel/1 protocol", "path": "reference/protocol", "icon": "network" }
+            ]
           }
         ]
       },
       {
         "tab": "Help Center",
-        "icon": "help-circle",
-        "pages": [
+        "icon": "life-buoy",
+        "groups": [
           {
-            "title": "Help Center",
-            "path": "help-center",
-            "icon": "home"
-          },
-          {
-            "group": "FAQs",
-            "icon": "help-circle",
-            "expandable": false,
+            "group": "Help",
             "pages": [
-              {
-                "title": "Getting Started Auth",
-                "path": "help-center/faq/getting-started-auth",
-                "icon": "help-circle"
-              }
-            ]
-          },
-          {
-            "group": "Troubleshooting",
-            "icon": "alert-triangle",
-            "expandable": false,
-            "pages": [
-              {
-                "title": "App Not Responding",
-                "path": "help-center/troubleshooting/app-not-responding",
-                "icon": "alert-triangle"
-              }
-            ]
-          },
-          {
-            "group": "Guides",
-            "icon": "book-open",
-            "expandable": false,
-            "pages": [
-              {
-                "title": "Setup Autonomous Agent",
-                "path": "help-center/guides/setup-autonomous-agent",
-                "icon": "book-open"
-              }
+              { "title": "Help Center", "path": "help-center", "icon": "life-buoy" },
+              { "title": "FAQ", "path": "help-center/faq", "icon": "circle-help" },
+              { "title": "Troubleshooting", "path": "help-center/troubleshooting", "icon": "wrench" }
             ]
           }
         ]
       },
       {
         "tab": "Changelog",
-        "icon": "clock",
+        "icon": "history",
         "pages": [
-          {
-            "title": "Release History",
-            "path": "changelog",
-            "icon": "history"
-          }
+          { "title": "Changelog", "path": "changelog", "icon": "history" }
         ]
       }
     ]

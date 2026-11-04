@@ -1,0 +1,1019 @@
+---
+title: "Python API"
+description: "The public functions, arguments and fields of agent-flywheel 0.3.0: serve(), attach(), the policy handle, the prompt decision, exceptions and the CLI."
+---
+
+This page documents the public surface of `agent-flywheel` 0.3.0, read from the source: every argument, return value and field you call or read. For the guided version, start with the [Python SDK](/python-sdk) page.
+
+```bash
+pip install agent-flywheel              # Python 3.10 to 3.13, one runtime dependency: httpx
+pip install "agent-flywheel[otel]"      # adds the OpenTelemetry API, never the SDK
+```
+
+```python
+import agent_flywheel as fw
+```
+
+| Name | Use it in | What it does |
+| --- | --- | --- |
+| [`serve()`](#serve) | a process you lend to practice tasks | claims rollouts, runs each one, reports the result |
+| [`attach()`](#attach) | the process serving your users | captures live turns, uploads them with consent |
+| [`record_tool_call()`](#record_tool_call) | anywhere | asserts one tool outcome |
+| [`apply_current_policy()`](#apply_current_policy) | your production agent, at startup | client arguments for the approved model |
+| [`policy_source()`](#policy_source) | your production agent, per turn | a refreshing handle for the approved model, rollback included |
+| [`current_prompt()`](#current_prompt) · [`prompt_decision()`](#prompt_decision) | your production agent | the approved system prompt, and whether it may be applied |
+| [`fw.TASK`](#fwtask) | a command entrypoint | marks where the task goes in an argv |
+| [`agent-flywheel`](#the-agent-flywheel-cli) | your terminal | keys, goose hooks, the tool-failure report |
+
+## serve()
+
+Claims rollouts and runs them until stopped. Returns the number of rollouts that completed.
+
+```python
+fw.serve(
+    entrypoint,
+    *,
+    agent_id: str,
+    input_shape: Literal["text", "messages", "dict"],
+    mode: Literal["training", "production", "rollout"] | None = None,
+    transport: Literal["attach"] = "attach",
+    control_plane_url: str | None = None,
+    api_key: str | None = None,
+    artifacts_dir: str | None = None,
+    isolation: Literal["subprocess", "inprocess"] = "subprocess",
+    concurrency: int = 1,
+    rollout_timeout_s: float = 900.0,
+    gate_flag: str | None = None,
+    endpoint_env: tuple[str, str] | None = None,
+    command_output_adapter: CommandOutputAdapter | None = None,
+    execution_snapshot: ExecutionSnapshot | None = None,
+    harness_snapshot: ExecutionSnapshot | None = None,
+    attested_execution_components: Mapping[str, str] | None = None,
+    volatile_command_values: Sequence[str] | None = None,
+    reports_tool_calls: bool = False,
+    method: str | None = None,
+    adapters: list[str] | str | None = "auto",
+    introspect: bool = True,
+    describe: Describe | None = None,
+    rules: Sequence[str] | None = None,
+    max_rollouts: int | None = None,
+    on_event: Callable[[str, dict], None] | None = None,
+) -> int
+```
+
+```python
+fw.serve(
+    "my_package.agent:build",
+    agent_id="support-agent",
+    input_shape="text",
+    max_rollouts=8,
+    artifacts_dir="/tmp/percepteye-first-run",
+    on_event=lambda kind, ev: print(kind, ev),
+)
+```
+
+### Arguments
+
+<ParamField path="entrypoint" param-type="str | list | object" required="true">
+
+Positional. `"module:attr"` for the default subprocess isolation, so each child can import it; an argv `list` for a command agent; or a constructed object, which only `isolation="inprocess"` accepts.
+
+</ParamField>
+
+<ParamField path="agent_id" param-type="str" required="true">
+
+The agent this process serves for. Use the name the agent's key was created for.
+
+</ParamField>
+
+<ParamField path="input_shape" param-type="Literal['text', 'messages', 'dict']" required="true">
+
+How the task reaches a Python entrypoint: the string, `[{"role": "user", "content": ...}]`, or `{"input": ...}`. Declared, never inferred. Any other value raises `EntrypointError`. A command entrypoint always receives the raw task text.
+
+</ParamField>
+
+<ParamField path="mode" param-type="str | None" required="false">
+
+Default `None`. `"training"` claims rollouts; `"production"` returns `0` before opening any connection and prints one line saying so. `"rollout"` is the legacy spelling of `"training"`. Unset, `PERCEPTEYE_AGENT_MODE` decides, then `"training"`. An unrecognised value raises `ConfigurationError`.
+
+</ParamField>
+
+<ParamField path="transport" param-type="Literal['attach']" required="false">
+
+Default `"attach"`, the only transport in `flywheel/1`. Any other value raises `ModeNotAvailable`.
+
+</ParamField>
+
+<ParamField path="control_plane_url" param-type="str | None" required="false">
+
+Default `None`. Falls back to `PERCEPTEYE_CONTROL_PLANE_URL`, then `https://launch.percepteye.ai/api/flywheel/v1`. Blank values fall through.
+
+</ParamField>
+
+<ParamField path="api_key" param-type="str | None" required="false">
+
+Default `None`. Falls back to `PERCEPTEYE_API_KEY`, then the key `agent-flywheel login` stored for this agent on this control plane. With none of those and a person at a terminal, `serve()` offers to create one; otherwise it raises `ConfigurationError`.
+
+</ParamField>
+
+<ParamField path="artifacts_dir" param-type="str | None" required="false">
+
+Default `None`, meaning `./.percepteye-artifacts`. Created if absent.
+
+</ParamField>
+
+<ParamField path="isolation" param-type="Literal['subprocess', 'inprocess']" required="false">
+
+Default `"subprocess"`: one fresh child per rollout, with a real timeout. `"inprocess"` accepts a constructed object, is capped at `concurrency=1` and has only an advisory timeout.
+
+</ParamField>
+
+<ParamField path="concurrency" param-type="int" required="false">
+
+Default `1`. Rollouts in flight. A single claim asks for at most 16.
+
+</ParamField>
+
+<ParamField path="rollout_timeout_s" param-type="float" required="false">
+
+Default `900.0`. The local ceiling on one rollout. The agent's actual budget is the smaller of this and the server deadline minus 10 seconds.
+
+</ParamField>
+
+<ParamField path="gate_flag" param-type="str | None" required="false">
+
+Default `None`. How this binary spells its completion-gate option, for example `"--autonomous-gate"`. The gate command itself arrives per rollout in `metadata["completion_gate"]`.
+
+</ParamField>
+
+<ParamField path="endpoint_env" param-type="tuple[str, str] | None" required="false">
+
+Default `None`. The `(url_var, key_var)` your agent reads its model endpoint from, when they are not the OpenAI or Anthropic names, for example `("DEEPSEEK_BASE_URL", "DEEPSEEK_API_KEY")`.
+
+</ParamField>
+
+<ParamField path="command_output_adapter" param-type="CommandOutputAdapter | None" required="false">
+
+Default `None`. Interprets a command agent's stdout. Without one, stdout is final text and no tool or model-call evidence is inferred.
+
+</ParamField>
+
+<ParamField path="execution_snapshot" param-type="ExecutionSnapshot | None" required="false">
+
+Default `None`. An execution adapter that supplies exact component digests and prepares, attests and releases an isolated view for each child.
+
+</ParamField>
+
+<ParamField path="harness_snapshot" param-type="ExecutionSnapshot | None" required="false">
+
+Deprecated alias for `execution_snapshot`; emits a `DeprecationWarning`. Passing both raises `ConfigurationError`.
+
+</ParamField>
+
+<ParamField path="attested_execution_components" param-type="Mapping[str, str] | None" required="false">
+
+Default `None`. Opaque `{stable_name: lowercase_sha256}` evidence from an execution adapter, folded into `agent_fingerprint.execution_sha256`. Never put secrets or free-form values here.
+
+</ParamField>
+
+<ParamField path="volatile_command_values" param-type="Sequence[str] | None" required="false">
+
+Default `None`. Command options whose value is transport rather than identity, for example `("--daemon-socket",)`. The option token stays in the execution identity and only its value is dropped. Command entrypoints only; a name absent from the command raises `ConfigurationError`.
+
+</ParamField>
+
+<ParamField path="reports_tool_calls" param-type="bool" required="false">
+
+Default `False`. Asserts that this flywheel reports a per-call outcome for every tool call it makes.
+
+</ParamField>
+
+<ParamField path="method" param-type="str | None" required="false">
+
+Default `None`. Names the entrypoint method instead of probing `invoke`, `run`, `execute`, `chat`, `__call__` in that order.
+
+</ParamField>
+
+<ParamField path="adapters" param-type="list[str] | str | None" required="false">
+
+Default `"auto"`: bind every built-in adapter (`"langchain"`, `"adk"`) whose framework is installed. `[]` binds none. A named adapter that cannot bind raises `RoutingNotInstallable`.
+
+</ParamField>
+
+<ParamField path="introspect" param-type="bool" required="false">
+
+Default `True`. Describes the agent once at startup and sends the description with the registration. `PERCEPTEYE_INTROSPECT=0` also turns it off. `introspect=False` with `describe=` raises `ConfigurationError`.
+
+</ParamField>
+
+<ParamField path="describe" param-type="Mapping | Callable[[], Mapping] | None" required="false">
+
+Default `None`. Your agent's own `system_prompt`, `tools` and `model`, or a zero-argument callable returning them. What you declare wins over reflection; leaving `tools` out never means "no tools" (that is `tools=[]`). A bad static declaration raises before anything connects.
+
+</ParamField>
+
+<ParamField path="rules" param-type="Sequence[str] | None" required="false">
+
+Default `None`, which sends nothing. One prose rule per string, declared once after registration to `POST /agents/{agent_id}/rulebook`, in the background. `[]` retracts the rulebook in force. A value that is not a list of strings raises `ConfigurationError`; a refusal from the control plane is printed in one line and never stops the flywheel.
+
+</ParamField>
+
+<ParamField path="max_rollouts" param-type="int | None" required="false">
+
+Default `None`. Stop after this many rollouts complete, and return. The only clean exit: nothing in the package handles `SIGINT` or `SIGTERM`. A crash and a graded pass both count.
+
+</ParamField>
+
+<ParamField path="on_event" param-type="Callable[[str, dict], None] | None" required="false">
+
+Default `None`. Called synchronously on whichever thread produced the event. Exceptions it raises are swallowed. Keep it cheap: the heartbeat thread emits `lease_lost` and `heartbeat_failed`.
+
+</ParamField>
+
+### Startup order
+
+Everything that can be misconfigured is checked before the first rollout, and raises there.
+
+| Step | Raises |
+| --- | --- |
+| Resolve the mode | `ConfigurationError` for a value it cannot parse. In production, return `0` here |
+| Check `transport` | `ModeNotAvailable` |
+| Check `describe=` and `rules=` shapes | `ConfigurationError` |
+| Resolve the key | `ConfigurationError` naming `PERCEPTEYE_API_KEY`, `agent-flywheel login` and the sign-up page |
+| Create `artifacts_dir` | `OSError` |
+| `GET /health` and require `flywheel/1` | `ConfigurationError` naming both versions |
+| Scan for provider variables the gateway cannot serve | `RuntimeWarning` only |
+| Resolve the entrypoint, check isolation | `EntrypointError` or `ConfigurationError` |
+| `POST /agents` | `TransportError` |
+| `POST /agents/{agent_id}/rulebook`, only with `rules=` | never; runs in the background |
+| `GET /policy/current` | never; printed, not applied |
+
+### `on_event` kinds
+
+| Kind | When |
+| --- | --- |
+| `claim_empty` | a claim succeeded with no work; payload `poll_after_ms` |
+| `claim_failed` | the claim itself failed; payload `error` |
+| `rollout_start` | a claimed rollout began |
+| `rollout_reported` | the result was accepted; payload `grade`, `duplicate`, `exclusion` |
+| `rollout_crash` | the rollout raised and was abandoned |
+| `report_failed` | the work happened, delivering it did not |
+| `artifact_failed` | collecting artifacts failed; the rollout is still reported, excluded from training |
+| `lease_lost` | the lease lapsed or was taken back |
+| `heartbeat_failed` | a renewal could not be delivered |
+| `serve_failed` · `abandon_failed` | the SDK failed while running a rollout, or could not abandon a crashed one |
+| `episode_plan` · `harness_call_ceiling_inert` | how a rollout's budget was split |
+| `outcome_spooled` · `outcome_spool_failed` · `outcome_undeliverable` · `outcome_unrebuildable` · `outcome_abandoned_in_outbox` | a result held, refused or retired in the outbox under `artifacts_dir` |
+| `drain_failed` | delivering held results failed; they stay on disk |
+| `delivery_brake` | three permanent refusals in a row; the flywheel stops claiming |
+
+Wire `claim_empty` first. Without a callback an empty queue and a broken claim route look identical.
+
+## fw.TASK
+
+A sentinel that marks where the task goes in a command entrypoint's argv.
+
+```python
+fw.serve(["dsh", "--profile", "headless", fw.TASK], agent_id="dsh-agent", input_shape="text")
+```
+
+Without it, the argv is untouched and the task arrives on stdin and in `PERCEPTEYE_TURN_INPUT`. With it, every occurrence is substituted and stdin gets the empty string. It is an object, not the string `"{task}"`, so a literal argument containing that text survives verbatim. See [CLI agents](/cli-agents).
+
+## attach()
+
+Binds capture in the process that serves your users. Returns an [`Attachment`](#attachment).
+
+```python
+fw.attach(
+    *,
+    agent_id: str,
+    trajectory_root: str,
+    control_plane_url: str | None = None,
+    api_key: str | None = None,
+    adapters: list[str] | str | None = "auto",
+    register: bool = True,
+    retention_turns: int | None = None,
+    execution_entrypoint: Any | None = None,
+    execution_input_shape: Literal["text", "messages", "dict"] = "text",
+    execution_method: str | None = None,
+    attested_execution_components: Mapping[str, str] | None = None,
+    describe: Describe | None = None,
+    rules: Sequence[str] | None = None,
+) -> Attachment
+```
+
+```python
+px = fw.attach(agent_id="support-agent", trajectory_root="/var/lib/percepteye")
+
+with px.turn(task_id=case_id, conversation_id=conv_id,
+             input_text=user_text) as turn_id:
+    reply = agent.invoke(user_text)       # your agent, unmodified
+
+px.record_answer(turn_id, reply)          # after the scope closes
+```
+
+It captures and never reroutes: the adapters are bound with no endpoint, so no production call is re-pointed. Nothing here raises on a control-plane failure; an unreachable control plane yields an attachment with `policy == {}`.
+
+### Arguments
+
+<ParamField path="agent_id" param-type="str" required="true">
+
+An exact 1 to 255 character production identifier, with no edge whitespace, control characters, `/`, `\`, `.` or `..`. An invalid value raises `ConfigurationError` before capture starts.
+
+</ParamField>
+
+<ParamField path="trajectory_root" param-type="str" required="true">
+
+The directory every captured turn is written under. Deliberately not defaulted: it is your copy, and nothing deletes it unless you ask. A path that cannot be created raises `ConfigurationError`.
+
+</ParamField>
+
+<ParamField path="control_plane_url" param-type="str | None" required="false">
+
+Default `None`. Falls back to `PERCEPTEYE_CONTROL_PLANE_URL`, then the hosted control plane.
+
+</ParamField>
+
+<ParamField path="api_key" param-type="str | None" required="false">
+
+Default `None`. Falls back to `PERCEPTEYE_API_KEY`, then the key stored by `agent-flywheel login`. With none, capture stays local and `upload_refusal` names the cause.
+
+</ParamField>
+
+<ParamField path="adapters" param-type="list[str] | str | None" required="false">
+
+Default `"auto"`. Same names as `serve()`. A binding failure is swallowed here and leaves `adapters_bound == ()`: a production turn with no capture is still a served user.
+
+</ParamField>
+
+<ParamField path="register" param-type="bool" required="false">
+
+Default `True`: `POST /agents`, then `GET /policy/current`, once at startup. `False` makes no outbound connection at all.
+
+</ParamField>
+
+<ParamField path="retention_turns" param-type="int | None" required="false">
+
+Default `None`, which deletes nothing. Keep only the N most recently written turns, pruning every 256 turns, so the ceiling is `retention_turns + 256`. A whole number, 0 or more; anything else raises `ConfigurationError`.
+
+</ParamField>
+
+<ParamField path="execution_entrypoint" param-type="Any | None" required="false">
+
+Default `None`. The live Python agent (or its import spec) this attachment observes, for exact execution identity. A command argv is refused.
+
+</ParamField>
+
+<ParamField path="execution_input_shape" param-type="Literal['text', 'messages', 'dict']" required="false">
+
+Default `"text"`. The declared call surface of `execution_entrypoint`.
+
+</ParamField>
+
+<ParamField path="execution_method" param-type="str | None" required="false">
+
+Default `None`. The method of `execution_entrypoint` to resolve instead of probing.
+
+</ParamField>
+
+<ParamField path="attested_execution_components" param-type="Mapping[str, str] | None" required="false">
+
+Default `None`. Opaque SHA-256 adapter evidence. Requires `execution_entrypoint`, and may not include `execution_sha256`; either mistake raises `ConfigurationError`.
+
+</ParamField>
+
+<ParamField path="describe" param-type="Mapping | Callable[[], Mapping] | None" required="false">
+
+Default `None`. The same declaration as `serve(describe=...)`. Without `execution_entrypoint` it is the whole description this registration sends. `PERCEPTEYE_INTROSPECT=0` wins over it, with a warning.
+
+</ParamField>
+
+<ParamField path="rules" param-type="Sequence[str] | None" required="false">
+
+Default `None`. As for `serve()`: declared once in the background after the policy read, and `attach()` returns without waiting. Read the answer from `rulebook` and `rulebook_refusal`.
+
+</ParamField>
+
+### Attachment
+
+#### turn()
+
+```python
+px.turn(*, turn_id=None, conversation_id=None, task_id=None, input_text=None) -> ContextManager[str]
+```
+
+Scopes one user turn and yields its id. Tool calls inside the scope land in that turn's trajectory. Nothing in it can fail the turn.
+
+<ParamField path="turn_id" param-type="str | None" required="false">
+
+Your own id for the turn. Absent or invalid, a fresh `t_` plus 16 hex characters is generated and yielded. Keep it: it is the join key for outcomes that arrive later.
+
+</ParamField>
+
+<ParamField path="conversation_id" param-type="str | None" required="false">
+
+Give every turn of one conversation the same id. Written to a `conversation_id` file in the turn's directory. An invalid value stays absent.
+
+</ParamField>
+
+<ParamField path="task_id" param-type="str | None" required="false">
+
+An opaque correlation id for your case, job or ticket. Persisted and forwarded, never interpreted. Invalid or conflicting values stay absent.
+
+</ParamField>
+
+<ParamField path="input_text" param-type="str | None" required="false">
+
+What the user asked. Optional, and only your code can pass it.
+
+</ParamField>
+
+#### record_answer()
+
+```python
+px.record_answer(turn_id: str, text: str) -> bool
+```
+
+Records what the agent finally answered. Callable after the scope closes. Returns whether anything was written, and never raises. A turn without an answer is held back from the 32-turn upload and leaves only at `close()` or exit.
+
+#### flush()
+
+```python
+px.flush(*, include_unanswered: bool = False, batch_size: int = 64) -> dict[str, int]
+```
+
+Uploads captured turns now, asking for consent again first while the answer is no. Returns counts: `sent`, `skipped`, `failed`, and `not_permitted: 1` when uploading is not permitted or no control plane is configured. Batches larger than 64 are split. Never raises.
+
+<ParamField path="include_unanswered" param-type="bool" required="false">
+
+Default `False`. `True` also sends turns that never recorded an answer. `close()` passes `True`.
+
+</ParamField>
+
+<ParamField path="batch_size" param-type="int" required="false">
+
+Default `64`, the contract's maximum per request.
+
+</ParamField>
+
+#### prune()
+
+```python
+px.prune(*, keep_last: int | None = None, older_than_s: float | None = None) -> int
+```
+
+Deletes turn directories under `trajectory_root` and returns how many. A turn is deleted if either argument says so; with neither, nothing is deleted. While uploading is on, turns already uploaded are deleted before turns still waiting. Never raises.
+
+#### Other members
+
+| Member | What it is |
+| --- | --- |
+| `read(turn_id)` | that turn's `list[ToolCallOutcome]`, or `None` if nothing was recorded |
+| `read_turn(turn_id)` | the `task` and `answer` text recorded for the turn, or `None` |
+| `wait_for_rulebook(timeout=None) -> bool` | waits for the answer to `rules=`; `True` once it has arrived |
+| `close()` | sends what is waiting (unanswered turns included), unbinds the adapters; idempotent, never raises |
+| `with fw.attach(...) as px:` | the attachment is a context manager; exit calls `close()` |
+
+#### Attributes
+
+<ResponseField name="may_upload" type="bool" required="true">
+
+Whether the control plane said this agent's turns may be uploaded. Off by default; re-read on the upload cadence while it is `False`.
+
+</ResponseField>
+
+<ResponseField name="upload_refusal" type="str | None" required="true">
+
+The sentence explaining a `False` above, in the control plane's words when it gave some. `None` exactly when `may_upload` is `True`.
+
+</ResponseField>
+
+<ResponseField name="may_capture_model_content" type="bool" required="true">
+
+The second consent tier: whether model calls inside a turn (system prompt, history, tool definitions, tool results) are recorded and uploaded as `genai_trace`. Only ever `True` where `may_upload` is.
+
+</ResponseField>
+
+<ResponseField name="model_content_refusal" type="str | None" required="true">
+
+Why model content is not captured, or `None` when it is.
+
+</ResponseField>
+
+<ResponseField name="rulebook" type="RulebookReceipt | None" required="true">
+
+The control plane's receipt for `rules=`: `status` (`registered`, `retracted`, `unchanged`), `product_id`, `version_id`, `version`, `content_sha256`, `parent_sha256`, `rule_count`. `None` when no rules were passed, none registered, or no answer yet.
+
+</ResponseField>
+
+<ResponseField name="rulebook_refusal" type="str | None" required="true">
+
+Why the rules are not confirmed in force, including "not answered yet". `None` when they registered or none were passed.
+
+</ResponseField>
+
+<ResponseField name="policy" type="dict" required="true">
+
+What `GET /policy/current` returned at startup, or `{}`. Informational only: `attach()` does not act on it.
+
+</ResponseField>
+
+<ResponseField name="adapters_bound" type="tuple[str, ...]" required="true">
+
+Which adapters bound, for example `("adk", "langchain")`. `()` is a real answer.
+
+</ResponseField>
+
+<ResponseField name="agent_fingerprint" type="dict | None" required="true">
+
+`{"execution_sha256": ...}` only when exact reconciliation succeeded; otherwise `None`.
+
+</ResponseField>
+
+### capture_verdict()
+
+```python
+fw.capture_verdict(body) -> CaptureVerdict
+```
+
+The consent predicate the SDK itself asks, over a registration response or a `GET /agents/{agent_id}/capture` body. Consent is the exact value `true`; a string `"true"` is not consent. `CaptureVerdict` has `may_upload`, `reason`, `answered`, `may_capture_model_content` and `model_content_reason`.
+
+## current_capture()
+
+```python
+fw.current_capture() -> tuple[Literal["rollout", "turn"], str] | None
+```
+
+What the current thread or task is capturing into: `("rollout", rollout_id)` inside `serve()`, `("turn", turn_id)` inside `attach().turn()`, or `None`. Branch on this, not on `current_rollout_id()`, which returns the turn id inside a production turn too.
+
+```python
+match fw.current_capture():
+    case ("rollout", rid): ...
+    case ("turn", tid):    ...
+    case None:             ...
+```
+
+## record_tool_call()
+
+```python
+fw.record_tool_call(
+    name: str,
+    arguments: dict | None = None,
+    *,
+    outcome: Literal["ok", "failed", "unknown"],
+    status_code: int | None,
+    output: Any = None,
+    error: str | None = None,
+    error_class: str | None = None,
+    latency_ms: float | None = None,
+    agent_name: str | None = None,
+    tool_call_id: str | None = None,
+    entity_ids: dict[str, str] | None = None,
+) -> None
+```
+
+Records one executed tool call against the current rollout or turn. Outside both it is a no-op, so the line can stay in production code. See [Outcomes](/outcomes).
+
+```python
+fw.record_tool_call("charge_card", {"amount": 4200}, outcome="ok", status_code=201)
+```
+
+<ParamField path="name" param-type="str" required="true">
+
+The tool name. Must be non-empty.
+
+</ParamField>
+
+<ParamField path="arguments" param-type="dict | None" required="false">
+
+Default `None`, recorded as `{}`. The arguments the tool ran with.
+
+</ParamField>
+
+<ParamField path="outcome" param-type="Literal['ok', 'failed', 'unknown']" required="true">
+
+Keyword-only, no default. `"unknown"` is a legal, honest answer and is never rounded up to `"ok"`.
+
+</ParamField>
+
+<ParamField path="status_code" param-type="int | None" required="true">
+
+Keyword-only, no default. The HTTP status observed, 100 to 599, or `None`. Forced to `None` when `outcome="unknown"`, and machine-readable status is scrubbed from `output` too.
+
+</ParamField>
+
+<ParamField path="output" param-type="Any" required="false">
+
+Default `None`. The tool result, stored as given.
+
+</ParamField>
+
+<ParamField path="error" param-type="str | None" required="false">
+
+Default `None`. The error text, when there was one.
+
+</ParamField>
+
+<ParamField path="error_class" param-type="str | None" required="false">
+
+Default `None`. A short class for the error.
+
+</ParamField>
+
+<ParamField path="latency_ms" param-type="float | None" required="false">
+
+Default `None`. How long the call took.
+
+</ParamField>
+
+<ParamField path="agent_name" param-type="str | None" required="false">
+
+Default `None`, meaning unattributed. Which agent in a multi-agent system made the call.
+
+</ParamField>
+
+<ParamField path="tool_call_id" param-type="str | None" required="false">
+
+Default `None`. The id the model assigned to the call, the join key back to the completion it followed.
+
+</ParamField>
+
+<ParamField path="entity_ids" param-type="dict[str, str] | None" required="false">
+
+Default `None`, in which case identity is read out of `output`. The entity a write produced, under the keys `id`, `key`, `uuid`, `sid` or `gid` only. Any other key raises `ContractViolation`.
+
+</ParamField>
+
+## apply_current_policy()
+
+```python
+fw.apply_current_policy(
+    *,
+    agent_id: str,
+    control_plane_url: str | None = None,
+    api_key: str | None = None,
+    set_env: bool = False,
+) -> dict
+```
+
+One `GET /policy/current`, turned into OpenAI-compatible client arguments. For your production agent only, never for `serve()`.
+
+```python
+from openai import OpenAI
+
+kw = fw.apply_current_policy(agent_id="support-agent")
+if kw:                                    # {} means keep your current config
+    client = OpenAI(base_url=kw["base_url"], api_key=kw["api_key"])
+    model = kw["model"]
+```
+
+<ParamField path="agent_id" param-type="str" required="true">
+
+The agent whose approved policy to read.
+
+</ParamField>
+
+<ParamField path="control_plane_url" param-type="str | None" required="false">
+
+Default `None`. Falls back to `PERCEPTEYE_CONTROL_PLANE_URL`, then the hosted control plane.
+
+</ParamField>
+
+<ParamField path="api_key" param-type="str | None" required="false">
+
+Default `None`. The agent's flywheel key to the control plane, resolved like everywhere else. It is not a credential for a provider endpoint.
+
+</ParamField>
+
+<ParamField path="set_env" param-type="bool" required="false">
+
+Default `False`. `True` also exports `OPENAI_BASE_URL` and `OPENAI_API_KEY`. It does not export the model.
+
+</ParamField>
+
+Returns `{"base_url", "api_key", "model"}`, or `{}`. `{}` means keep your current configuration: nothing deployed, a withdrawal, no endpoint or no model, a stored-artifact model (`gs://`, `s3://`, `file://`, `/`), no credential for the endpoint, an unreachable control plane, or no key. The cause is logged on the `agent_flywheel` logger, and it never raises into your startup.
+
+The endpoint credential is chosen in this order, and never invented:
+
+| Order | Source |
+| --- | --- |
+| 1 | the control plane's own `endpoint.api_key`, when it sends one |
+| 2 | the variable named by `endpoint.api_key_env`; when that name is `PERCEPTEYE_API_KEY`, your flywheel key goes only to an endpoint at the control plane's own origin |
+
+Your flywheel key is never a fallback for a provider endpoint.
+
+Underneath sit `fw.current_policy(agent_id=..., control_plane_url=None, api_key=None)`, the raw `/policy/current` body (or `{}`), and `fw.endpoint_kwargs(policy, *, api_key=None, flywheel_key=None, control_plane_url=None)`, the one place a body becomes client arguments. There, `api_key=` is your own credential for the endpoint and wins over every other source. `fw.is_withdrawn(body)` and `fw.is_archive_ref(model)` are the two predicates it uses.
+
+## policy_source()
+
+```python
+fw.policy_source(
+    *,
+    agent_id: str,
+    ttl_s: float = 300.0,
+    control_plane_url: str | None = None,
+    api_key: str | None = None,
+    on_change: Callable[[PolicySnapshot], None] | None = None,
+) -> PolicySource
+```
+
+A refreshing view of `/policy/current`, built for rollback first and promotion second. Call `current()` per turn.
+
+```python
+policy = fw.policy_source(agent_id="support-agent", ttl_s=300)
+client, model = OpenAI(), "my-model"      # your own configuration
+
+snap = policy.current()                   # per turn, or per request
+if snap.changed:                          # rebuild only on an actual change
+    if snap:                              # a served policy
+        client = OpenAI(base_url=snap.base_url, api_key=snap.api_key)
+        model = snap.model
+    elif snap.withdrawn:                  # taken back: your own again
+        client, model = OpenAI(), "my-model"
+```
+
+<ParamField path="agent_id" param-type="str" required="true">
+
+The agent whose policy to follow.
+
+</ParamField>
+
+<ParamField path="ttl_s" param-type="float" required="false">
+
+Default `300.0`. The refresh interval. A server `ttl_s` hint wins over it, and the 30-second floor (`agent_flywheel.policy.MIN_TTL_S`) wins over both. Jitter of plus or minus 10% is drawn once per handle.
+
+</ParamField>
+
+<ParamField path="control_plane_url" param-type="str | None" required="false">
+
+Default `None`. Resolved as for every other call.
+
+</ParamField>
+
+<ParamField path="api_key" param-type="str | None" required="false">
+
+Default `None`. The agent's flywheel key to the control plane.
+
+</ParamField>
+
+<ParamField path="on_change" param-type="Callable[[PolicySnapshot], None] | None" required="false">
+
+Default `None`. Called on promotion, rollback and withdrawal alike, never on a failed refresh. Exceptions it raises are swallowed.
+
+</ParamField>
+
+The handle has `current() -> PolicySnapshot` (never raises), `close()` (idempotent), a `ttl_s` property (the interval in force, hint and jitter applied), and is a context manager. Nothing polls in the background: the refresh runs inside `current()`, one caller at a time, with one attempt bounded at 1 second. A failed refresh keeps the last good snapshot.
+
+### PolicySnapshot
+
+Immutable. `bool(snap)` is truthy only when there is something to act on; `snap.as_kwargs()` returns the same shape as `apply_current_policy()`.
+
+<ResponseField name="base_url" type="str" required="true">
+
+OpenAI-compatible base URL. Empty when nothing is deployed, the control plane never answered, or the policy was withdrawn.
+
+</ResponseField>
+
+<ResponseField name="api_key" type="str" required="true">
+
+The credential for that endpoint, chosen by the same rule as `apply_current_policy()`.
+
+</ResponseField>
+
+<ResponseField name="model" type="str" required="true">
+
+The model name to send.
+
+</ResponseField>
+
+<ResponseField name="changed" type="bool" required="true">
+
+`True` on the one snapshot that first reports a change. Consumed by whoever observes it, so build one client per handle.
+
+</ResponseField>
+
+<ResponseField name="stale_for_s" type="float" required="true">
+
+`0.0` while refreshes succeed; seconds past the TTL while they fail, measured from the last success or from when the handle was built. The number to alert on.
+
+</ResponseField>
+
+<ResponseField name="last_refresh_ok" type="bool" required="true">
+
+Whether the last refresh attempt succeeded, including one that never reached the network because no key is configured.
+
+</ResponseField>
+
+<ResponseField name="serving_generation" type="str" required="true">
+
+The control plane's own generation for what to run. Moves when anything moves, the prompt included. A fleet cycles a replica when it differs.
+
+</ResponseField>
+
+<ResponseField name="withdrawn" type="bool" required="true">
+
+`True` while the snapshot is empty because the control plane withdrew the policy it served (`withdrawn: true`). Go back to your own configuration.
+
+</ResponseField>
+
+## current_prompt()
+
+```python
+fw.current_prompt(
+    *,
+    agent_id: str,
+    control_plane_url: str | None = None,
+    api_key: str | None = None,
+) -> dict
+```
+
+One `GET /prompt/current`. Returns the approved system prompt bundle, or `{}`, which means keep the prompt you have. It is never applied for you. Arguments are as for `apply_current_policy()`.
+
+<ResponseField name="name" type="str" required="false">
+
+The prompt's name.
+
+</ResponseField>
+
+<ResponseField name="version" type="int" required="false">
+
+Its version.
+
+</ResponseField>
+
+<ResponseField name="text" type="str" required="false">
+
+The prompt text, the deliverable.
+
+</ResponseField>
+
+<ResponseField name="sha256" type="str" required="false">
+
+The prompt's own identity.
+
+</ResponseField>
+
+<ResponseField name="candidate_kind" type="str" required="false">
+
+For example `"replacement"`.
+
+</ResponseField>
+
+<ResponseField name="status" type="str" required="false">
+
+Only `"approved"` and `"delivered"` may be applied (`fw.SERVABLE_PROMPT_STATUSES`).
+
+</ResponseField>
+
+<ResponseField name="model_prompt_checksum" type="str" required="false">
+
+The prompt identity stamped on the model when the pair was certified.
+
+</ResponseField>
+
+<ResponseField name="stale_baseline" type="bool" required="false">
+
+`true` when the baseline prompt you supplied changed after the pair was certified.
+
+</ResponseField>
+
+## prompt_decision()
+
+```python
+fw.prompt_decision(prompt: Mapping | None) -> PromptDecision
+```
+
+Pure. Decides whether a `/prompt/current` body may be applied, and why not. Never raises; anything that is not a mapping is read as `{}`.
+
+```python
+served = fw.current_prompt(agent_id="support-agent")
+decision = fw.prompt_decision(served)
+if decision.apply:
+    system_prompt = decision.text         # never None here
+else:
+    log.info("keeping the current prompt: %s", decision.reason)
+```
+
+<ResponseField name="apply" type="bool" required="true">
+
+`True` only when all four checks below pass.
+
+</ResponseField>
+
+<ResponseField name="text" type="str | None" required="true">
+
+The text to apply, exactly as served. `None` on every refusal, never `""`.
+
+</ResponseField>
+
+<ResponseField name="checksum" type="str | None" required="true">
+
+`model_prompt_checksum`, when the bundle carried one. Populated on refusals too.
+
+</ResponseField>
+
+<ResponseField name="reason" type="str" required="true">
+
+Why not, in one sentence. Empty exactly when `apply` is `True`.
+
+</ResponseField>
+
+The checks run in this order. The Node plugin's `promptDecision` asks the same four with the same sentences.
+
+| Refuses when | Reason begins |
+| --- | --- |
+| `text` is missing or blank | `the control plane is serving no approved prompt for this agent (empty answer)` |
+| `stale_baseline` is `true` | `stale_baseline=true: this agent's own baseline prompt changed after the pair was certified` |
+| `status` is not `approved` or `delivered` | `the served bundle's status is ...` |
+| `sha256` and `model_prompt_checksum` are both present and differ | `the bundle disagrees with itself` |
+
+## Mode helpers
+
+| Function | Returns |
+| --- | --- |
+| `fw.resolve_mode(explicit=None)` | `"training"` or `"production"`: the argument, then `PERCEPTEYE_AGENT_MODE`, then `"training"`. Raises `ConfigurationError` on a value it cannot parse |
+| `fw.current_mode()` | the same, from the environment alone |
+
+Accepted spellings: `training`, `train`, `rollout`, `rollouts`, `fine-tuning`, `finetuning`, `improving` for training; `production`, `prod`, `serving` for production. `PERCEPTEYE_AGENT_MODE` gates `serve()` only, never `attach()`. See [Training and production](/modes).
+
+## Exceptions
+
+All importable from `agent_flywheel`.
+
+| Exception | Parent | Raised when |
+| --- | --- | --- |
+| `FlywheelError` | `Exception` | base for everything the package raises |
+| `ConfigurationError` | `FlywheelError` | the SDK cannot start: a bad mode, no key, a bad argument, a control plane that does not speak `flywheel/1` |
+| `EntrypointError` | `ConfigurationError` | the entrypoint exposes no callable to drive, or `input_shape` is invalid |
+| `RoutingNotInstallable` | `ConfigurationError` | a named adapter cannot bind; carries `reason`, `evidence` and `remedy` |
+| `ModeNotAvailable` | `ConfigurationError` | `transport` is not `"attach"` |
+| `ContractViolation` | `FlywheelError` | a value cannot be represented on the `flywheel/1` wire |
+| `TransportError` | `FlywheelError` | the control plane could not be reached or answered unusably; carries `status_code` (`None` when there was no response) and `ambiguous` (the request may have been performed) |
+| `LeaseLost` | `TransportError` | a `410`: this rollout's lease is gone, stop working on it |
+
+None of these fires mid-rollout: an exception from your agent inside a rollout is reported as a failed rollout. `attach()` raises only for configuration mistakes, never for a control-plane failure.
+
+## The agent-flywheel CLI
+
+Installed with the wheel. A `ConfigurationError` (for example an unreadable `PERCEPTEYE_AGENT_MODE`) is printed and exits `2`.
+
+```bash
+agent-flywheel login --agent-id support-agent    # create a key in your browser, store it here
+agent-flywheel logout --agent-id support-agent   # forget it here
+agent-flywheel install-hooks                     # point goose at the recorder this wheel ships
+agent-flywheel status                            # is the hook installed, current, and claiming?
+agent-flywheel report                            # your agent's real tool-failure rate
+```
+
+| Command | Flags | What it does |
+| --- | --- | --- |
+| `login` | `--agent-id` (default `$PERCEPTEYE_AGENT_ID`), `--control-plane-url` (default `$PERCEPTEYE_CONTROL_PLANE_URL`, then the hosted one), `--no-browser` (print the link instead) | Device login for one agent: a code here, Approve in the browser, the key stored in `$PERCEPTEYE_HOME/credentials.json` (default `~/.percepteye`, mode 0600, shared with the Node plugin). Exits `2` without an agent id, `130` if cancelled, `1` if the login fails |
+| `logout` | `--agent-id`, `--control-plane-url` | Forgets the stored key locally. The key stays valid until revoked in Mission Control (Settings) |
+| `install-hooks` | `--force` (replace a plugin directory this command did not install) | Installs the goose plugin; prints where traffic goes and whether rollouts will be claimed. Exits `2` if a foreign plugin is in the way, `1` on a filesystem error |
+| `status` | none | Reports whether the goose plugin is installed and current, its endpoint, and whether it claims rollouts. Exits `1` when not installed or stale |
+| `report` | `[directory]` (default: the most recent session) | Prints the tool-failure rate the recorder captured |
+
+See [CLI agents](/cli-agents) for goose, and [Authentication](/authentication) for keys.
+
+## CustomerApiClient
+
+<Callout kind="info">
+
+Not in the 0.3.0 release. `agent_flywheel.customer_api` was added to `main` after the `v0.3.0` tag.
+
+</Callout>
+
+Reads of the customer-automation API (customer contract 1.31.0), under `/api/v2` on the control plane's origin. It needs a customer-automation key (`mck_`), not an agent key: a `pefw_` key raises `ConfigurationError` before anything is sent.
+
+```python
+from agent_flywheel.customer_api import CustomerApiClient
+
+with CustomerApiClient() as mc:           # api_key= or PERCEPTEYE_MC_API_KEY
+    runs = mc.list_runs(product_id="prod_123", include_prompt_evolutions=True)
+    path = mc.training_eligibility(agent_id="agent_123")["prompt_optimization"]
+```
+
+| Member | Request |
+| --- | --- |
+| `CustomerApiClient(api_key=None, *, control_plane_url=None, base_url=None, timeout=30.0, client=None, environ=None)` | constructor |
+| `supports_contract() -> bool` | `GET /health`; whether the server speaks contract major 1 |
+| `list_runs(*, status, limit, offset, started_after, started_before, product_id, include_background, include_prompt_evolutions)` | `GET /runs` |
+| `training_eligibility(*, agent_id=None, product_id=None)` | `GET /training/eligibility` |
+| `list_eval_sets(*, product_id=None, limit=None, offset=None)` | `GET /eval-sets` |
+| `hillclimb_security(run_id)` | `GET /hillclimbs/{run_id}/security` |
+
+A refusal raises `CustomerRefusal` with `status_code`, `code`, `message`, `customer_message`, `customer_words`, `remediation`, `fault_owner` and `retryable`. Show a person `plain_words`.
+
+## Other exports
+
+| Name | What it is |
+| --- | --- |
+| `fw.current_rollout_id()` | the id the current scope records under (a turn id inside `attach().turn()`) |
+| `fw.Trajectory(dir)` | reader for a trajectory directory; `read()` returns `list[ToolCallOutcome]` or `None`, `malformed` counts unreadable lines |
+| `fw.ToolCallOutcome` · `fw.RolloutRequest` · `fw.RolloutOutput` · `fw.RulebookReceipt` | the [wire types](/reference/protocol) |
+| `fw.CONTRACT_VERSION` | `"flywheel/1"` |
+| `fw.__version__` | the installed version |
+| `fw.resolve_entrypoint(obj, *, input_shape, method=None)` | the entrypoint resolution `serve()` uses |
+| `fw.introspect_agent(obj)` | the reflection `serve()` uses to describe an agent |
+
+The package logs on the `agent_flywheel` logger and never installs a handler. Route it into your logging to see why a call returned `{}`.
