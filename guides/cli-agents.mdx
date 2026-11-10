@@ -1,0 +1,107 @@
+---
+title: "CLI agents"
+description: "Run practice tasks for any command-line agent, in any language, with no change to the binary."
+---
+
+```python
+import agent_flywheel as fw
+
+fw.serve(["opencode", "run"], agent_id="coding-agent", input_shape="text")
+fw.serve(["dsh", "--profile", "headless", fw.TASK], agent_id="dsh-agent", input_shape="text")
+```
+
+A `list` or `tuple` means the agent is a process. Nothing is imported, and the agent is already isolated in its own process.
+
+## How the task arrives
+
+| Channel | When | Notes |
+|:--|:--|:--|
+| **stdin** | Always, unless `fw.TASK` is in the argv | Written, then closed |
+| `PERCEPTEYE_TURN_INPUT` | Always | Inert unless your CLI reads it |
+| **An argv position** | Only where `fw.TASK` appears | Every occurrence is substituted; stdin then gets `""` |
+
+`fw.TASK` is a sentinel object, not the string `"{task}"`. The argv is passed to the OS as a list, never through a shell.
+
+<Callout kind="alert">
+
+Anything in an argv is visible to other users through `ps`. Use `fw.TASK` only when your CLI cannot read stdin or an environment variable.
+
+</Callout>
+
+## What comes back
+
+For an ordinary command, trimmed stdout is the final answer.
+
+| What happened | Exclusion | Reported |
+|:--|:--|:--|
+| Exit 0 | None | Yes |
+| Non-zero exit | `agent_exit_nonzero`, with the last 1500 characters of stderr | Yes, carrying the exclusion |
+| Killed on the deadline | `deadline_exceeded` | Yes, carrying the exclusion |
+| Binary could not start | `flywheel_crash` | No: the task is abandoned |
+
+Excluded is not discarded: the work product is recorded, and the control plane knows not to train on it. On a clean exit or a timeout, stderr is discarded.
+
+## The working directory is the run
+
+Each run starts in its own directory, `<artifacts_dir>/_percepteye/<rollout_id>`, also passed as `PERCEPTEYE_TRAJECTORY_DIR`. Every file your agent leaves there is collected as an artifact (symlinks are never followed). `artifacts_dir=` defaults to `./.percepteye-artifacts`: **point it outside any checkout**, because a CLI agent has a real shell.
+
+## The child's environment
+
+| Variable | Value |
+|:--|:--|
+| `PERCEPTEYE_ROLLOUT_ID` | This run's id |
+| `PERCEPTEYE_TRAJECTORY_DIR` | This run's directory, also the working directory |
+| `PERCEPTEYE_TURN_INPUT` | The task |
+| `PERCEPTEYE_TASK_ID` | The id of the task this run was handed (your own id for a task you registered) |
+| `PERCEPTEYE_HOSTED_URL` | Base for non-policy models through the gateway; append the provider, e.g. `/openrouter` |
+| `OPENAI_BASE_URL`, `OPENAI_API_BASE`, `ANTHROPIC_BASE_URL` | The per-run gateway |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | The run's single-use key |
+
+Your environment otherwise passes through, except that the `PERCEPTEYE_` namespace is never inherited (your long-lived key stays in the parent), and provider variables the gateway cannot serve (Azure, Gemini/Vertex, Bedrock's bearer token, OpenAI-compatible resellers) are removed. `serve()` warns at startup if it finds any.
+
+**Your agent must sample through an OpenAI-compatible client**, because the per-run gateway speaks that API and records the model calls.
+
+If your agent reads other variable names, declare them:
+
+```python
+fw.serve(["dsh", "--profile", "headless", fw.TASK],
+         agent_id="dsh-agent", input_shape="text",
+         endpoint_env=("DEEPSEEK_BASE_URL", "DEEPSEEK_API_KEY"))
+```
+
+If a task carries a completion gate and your binary takes one, name its flag: `gate_flag="--autonomous-gate"`.
+
+## Timeouts
+
+`rollout_timeout_s` (default 900) is capped by the run's remaining budget less a 10 s margin. On expiry the whole process group is killed with `SIGKILL`, so a shell, compiler or test runner your agent spawned cannot hold the run open.
+
+## Tool outcomes with no instrumentation
+
+**Append from a shell.** One JSON object per line; `name` and `outcome` are required.
+
+```bash
+printf '{"name":"deploy","arguments":{"env":"prod"},"outcome":"ok","status_code":201}\n' \
+  >> "$PERCEPTEYE_TRAJECTORY_DIR/tool_calls.jsonl"
+```
+
+**Or parse the event stream your CLI already prints** with an explicit `command_output_adapter`. Without one, stdout is only the final text and no tool evidence is inferred. The generic OpenTelemetry GenAI format (`gen_ai.tool.start` / `gen_ai.tool.end`) can be reused by a small adapter of your own. An end event with no error flag is `unknown`, never `ok`.
+
+If anything was written to `tool_calls.jsonl`, including `[]`, the stream parse is not consulted.
+
+## Report your own grade
+
+An agent backed by its own environment can grade itself. Write one JSON object to `$PERCEPTEYE_TRAJECTORY_DIR/outcome.json` before exiting:
+
+```bash
+printf '{"reward": 0.8, "success": true}\n' > "$PERCEPTEYE_TRAJECTORY_DIR/outcome.json"
+```
+
+Both keys are optional. Only a finite number is read as `reward` and only a boolean as `success`; anything else is ignored, never coerced.
+
+## How a CLI agent is described
+
+A CLI agent has no object to read, so at startup `serve()` runs it once with the warm-up prompt `Reply with the single word: ready` against a local observer that forwards nothing, and reads the system prompt and tools from the completion request. It takes well under a second.
+
+## Worked example
+
+[`examples/prime_agent`](https://github.com/percepteye-ai/agent-flywheel/tree/main/examples/prime_agent) serves `prime-agent` with an argv and an explicit `PrimeAgentOutputAdapter`. [`examples/goose`](https://github.com/percepteye-ai/agent-flywheel/tree/main/examples/goose) serves goose.

@@ -35,9 +35,24 @@
             "icon": "layers",
             "pages": [
               {
-                "title": "Concepts",
+                "title": "Core Concepts",
                 "path": "concepts",
                 "icon": "star"
+              },
+              {
+                "title": "Outcomes",
+                "path": "concepts/outcomes",
+                "icon": "check-circle"
+              },
+              {
+                "title": "Training and production modes",
+                "path": "concepts/modes",
+                "icon": "toggle-left"
+              },
+              {
+                "title": "Approvals",
+                "path": "concepts/approvals",
+                "icon": "shield-check"
               }
             ]
           },
@@ -49,6 +64,52 @@
                 "title": "Authentication",
                 "path": "authentication",
                 "icon": "lock"
+              },
+              {
+                "title": "Production capture",
+                "path": "guides/production-capture",
+                "icon": "radio"
+              },
+              {
+                "title": "Apply the approved model and prompt",
+                "path": "guides/apply-approved-policy",
+                "icon": "refresh-cw"
+              },
+              {
+                "title": "Prompt optimization",
+                "path": "guides/prompt-optimization",
+                "icon": "sparkles"
+              },
+              {
+                "title": "OpenTelemetry push",
+                "path": "guides/opentelemetry-push",
+                "icon": "activity"
+              },
+              {
+                "title": "CLI agents",
+                "path": "guides/cli-agents",
+                "icon": "terminal"
+              }
+            ]
+          },
+          {
+            "group": "SDK Reference",
+            "icon": "code",
+            "pages": [
+              {
+                "title": "Python SDK",
+                "path": "sdk/python",
+                "icon": "code"
+              },
+              {
+                "title": "Python CLI",
+                "path": "sdk/python-cli",
+                "icon": "terminal-square"
+              },
+              {
+                "title": "Node plugin",
+                "path": "sdk/node",
+                "icon": "package"
               }
             ]
           },
@@ -60,6 +121,16 @@
                 "title": "Integrations",
                 "path": "integrations",
                 "icon": "plug"
+              },
+              {
+                "title": "Configuration reference",
+                "path": "advanced/configuration",
+                "icon": "sliders"
+              },
+              {
+                "title": "Wire contract",
+                "path": "advanced/wire-contract",
+                "icon": "file-json"
               }
             ]
           }
@@ -71,8 +142,19 @@
         "groups": [
           {
             "group": "Endpoints",
-            "openapi": "api-reference/openapi.yaml",
-            "pages": []
+            "icon": "server",
+            "pages": [
+              {
+                "title": "Control plane API",
+                "path": "api-reference/control-plane",
+                "icon": "server"
+              },
+              {
+                "title": "Mission Control API",
+                "path": "api-reference/mission-control",
+                "icon": "layout-dashboard"
+              }
+            ]
           }
         ]
       },
@@ -86,40 +168,19 @@
             "icon": "home"
           },
           {
-            "group": "FAQs",
-            "icon": "help-circle",
-            "expandable": false,
-            "pages": [
-              {
-                "title": "Getting Started Auth",
-                "path": "help-center/faq/getting-started-auth",
-                "icon": "help-circle"
-              }
-            ]
+            "title": "FAQ",
+            "path": "help-center/faq",
+            "icon": "help-circle"
           },
           {
-            "group": "Troubleshooting",
-            "icon": "alert-triangle",
-            "expandable": false,
-            "pages": [
-              {
-                "title": "App Not Responding",
-                "path": "help-center/troubleshooting/app-not-responding",
-                "icon": "alert-triangle"
-              }
-            ]
+            "title": "Troubleshooting",
+            "path": "help-center/troubleshooting",
+            "icon": "alert-triangle"
           },
           {
-            "group": "Guides",
-            "icon": "book-open",
-            "expandable": false,
-            "pages": [
-              {
-                "title": "Setup Autonomous Agent",
-                "path": "help-center/guides/setup-autonomous-agent",
-                "icon": "book-open"
-              }
-            ]
+            "title": "In the dashboard",
+            "path": "help-center/dashboard",
+            "icon": "mouse-pointer-click"
           }
         ]
       },
@@ -128,7 +189,7 @@
         "icon": "clock",
         "pages": [
           {
-            "title": "Release History",
+            "title": "Changelog",
             "path": "changelog",
             "icon": "history"
           }

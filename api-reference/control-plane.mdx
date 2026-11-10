@@ -1,0 +1,99 @@
+---
+title: "Control plane API"
+description: "The control-plane endpoints you may call directly with an agent key, outside the SDKs."
+---
+
+## Base URL and authentication
+
+```text
+https://launch.percepteye.ai/api/flywheel/v1
+Authorization: Bearer pefw_...
+```
+
+Use the agent's own `pefw_` key. A key bound to a different agent is refused. The full list of endpoints the SDKs use is in the [Wire contract](/advanced/wire-contract#control-plane-endpoints-the-sdks-call).
+
+## Register an agent
+
+`POST /agents`
+
+Registers an agent so its permissions can be switched on. The SDKs do this at startup; call it yourself only for an agent that never runs an SDK, such as one that only pushes OpenTelemetry spans.
+
+```bash
+curl -X POST "$PERCEPTEYE_CONTROL_PLANE_URL/agents" \
+  -H "Authorization: Bearer $PERCEPTEYE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "support-agent", "mode": "production", "discovered_agent": null}'
+```
+
+| Field | Type | Notes |
+|:--|:--|:--|
+| `agent_id` | string | The agent the key was created for |
+| `mode` | string | `production` for a serving agent; the SDK's `serve()` sends `rollout` |
+| `discovered_agent` | object or `null` | `null` records that the agent describes nothing about itself. Omitting the key is read as an opt-out of introspection |
+
+## Push OpenTelemetry traces
+
+`POST /agents/{agent_id}/otlp/v1/traces`
+
+Accepts an OTLP `ExportTraceServiceRequest` as `application/x-protobuf` or `application/json`, optionally `Content-Encoding: gzip`. Both of the agent's permissions must be on.
+
+| Status | Meaning |
+|:--|:--|
+| `200` | `ExportTraceServiceResponse`; `partial_success` counts spans not kept and says why |
+| `400` | Not an OTLP trace export |
+| `403` | `production_capture_not_enabled`, `model_content_capture_not_enabled`, or a key for another agent |
+| `415` | Unsupported content type or encoding |
+| `429` | Organization over its rate; honor `Retry-After` |
+| `503` | Control plane busy; honor `Retry-After` |
+| `507` | Request too large for the host's disk; body is a `google.rpc.Status` |
+
+Guide: [OpenTelemetry push](/guides/opentelemetry-push).
+
+## Read capture permission
+
+`GET /agents/{agent_id}/capture`
+
+A plain read of whether this agent may upload turns and model content. The SDKs ask this before each upload batch while the answer is no.
+
+## Get the approved model
+
+`GET /policy/current`
+
+```bash
+curl "$PERCEPTEYE_CONTROL_PLANE_URL/policy/current" \
+  -H "Authorization: Bearer $PERCEPTEYE_API_KEY"
+```
+
+Returns the policy the agent should run. Fields the SDKs act on:
+
+| Field | Meaning |
+|:--|:--|
+| `endpoint.base_url` | OpenAI-compatible base URL of the approved model |
+| `endpoint.model` | Model name to send |
+| `endpoint.api_key_env` | The variable whose value authenticates to that endpoint |
+| `withdrawn` | `true` when a person rolled back with nothing to serve: use your own configuration |
+| `serving_generation` | Changes whenever anything to run changes |
+| `prompt_generation` | Names the prompt approval being served |
+| `ttl_s` | Suggested refresh interval; the SDKs never refresh faster than 30 s |
+
+Treat an empty body, a missing endpoint, or a `gs://`, `s3://` or `file://` model as "keep your current configuration".
+
+## Get the approved prompt
+
+`GET /prompt/current`
+
+| Field | Meaning |
+|:--|:--|
+| `name`, `version`, `text` | The approved prompt |
+| `sha256` | Prompt identity |
+| `candidate_kind`, `status` | e.g. `replacement`, `approved` |
+| `model_prompt_checksum` | The prompt identity stamped on the model it was certified with |
+| `stale_baseline` | `true` when your own baseline prompt changed after certification |
+
+Apply `text` only when `status` is `approved` or `delivered`, `stale_baseline` is false, and `sha256` matches `model_prompt_checksum` when both are present. This is the rule `prompt_decision()` and the Node plugin implement.
+
+## Declare workflow rules
+
+`POST /agents/{agent_id}/rulebook`
+
+Declares your Product's workflow rules, as `rules=` does. A list of prose strings; `[]` retracts. Refusals include `409 rulebook_unattributed` (no Product, or more than one, declares the agent) and `422 rulebook_invalid` (names the rule's index and the cause).

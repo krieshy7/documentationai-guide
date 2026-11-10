@@ -1,0 +1,85 @@
+---
+title: "Troubleshooting"
+description: "Find what you see. Each answer names the cause and the fix."
+---
+
+- **Python:** read `px.upload_refusal` and `px.model_content_refusal`, wire `serve(on_event=...)`, and let your logging show the `agent_flywheel` logger and Python warnings.
+- **Node:** read the plugin's startup line and warnings in the OpenClaw log.
+
+## The dashboard never sees your agent connect
+
+- **No key in your agent's environment.** Python `serve()` raises before the first task, naming `agent-flywheel login` and the sign-up page. `attach()` keeps running and records on disk. The Node plugin records locally and its startup line says no key is set.
+- **The URL points somewhere else.** Unset, it is the hosted control plane. `agent-flywheel status` prints the URL the Python SDK resolved.
+- **Your network blocks it.** Every connection is outbound HTTPS to the control-plane URL. Allow it.
+- **The key was revoked, or is more than 180 days old.** Create a new one: **Agents** → your agent → **Get a new key**.
+- **Node: you restarted nothing after `login`.** The plugin reads a stored key when the gateway starts.
+
+## `serve()` will not start
+
+`serve()` checks everything before its first task and raises `ConfigurationError` naming the cause:
+
+| Message is about | Fix |
+|:--|:--|
+| The mode | Set `PERCEPTEYE_AGENT_MODE` to `training` or `production` |
+| A missing key | `export PERCEPTEYE_API_KEY=pefw_...` or run `agent-flywheel login` |
+| The entrypoint | Use an importable `"module:attr"` factory; check the method list in the error |
+| The contract | The control plane's `/health` does not list `flywheel/1`; check the URL |
+| A named adapter | Install its framework, or drop it from `adapters=` |
+
+## `serve()` returns at once
+
+Since 0.4.0, an unset `PERCEPTEYE_AGENT_MODE` means production, where `serve()` prints one line and returns `0`. Set `PERCEPTEYE_AGENT_MODE=training` on the process meant to run practice tasks.
+
+## Practice tasks never arrive
+
+- **Allow practice runs is off** for the agent in Mission Control. `serve()` (Python) and the rollout runner (Node) say so at registration. An org admin turns it on on the agent's page.
+- **`practice_needs_a_training_process`** from Mission Control: no training process has checked in. Start one with `PERCEPTEYE_AGENT_MODE=training`.
+
+## `serve()` runs but nothing happens
+
+Wire `on_event`. Without it an empty queue and a broken claim route look identical.
+
+- `claim_empty` repeating: the queue is empty. Generate tasks from the agent's page: **Advanced** → **Generate tasks and run them**.
+- `claim_failed` repeating: the claim route is broken, often a revoked key. The loop keeps retrying; fix the key.
+- `delivery_brake`: three results in a row were refused permanently, so claiming stopped. Check the paths named in `outcome_undeliverable`.
+
+## OpenClaw won't claim practice tasks
+
+The plugin needs `hooks.allowConversationAccess: true` and says so once at startup. It also claims nothing unless `PERCEPTEYE_AGENT_MODE=training` (production is the default), when **Allow practice runs** is off, or when `PERCEPTEYE_CAPTURE=0`.
+
+## Nothing arrives in the dashboard
+
+- **Nothing has been sent yet.** Turns go every 32 turns and at exit. Python: `px.flush()` sends now.
+- **`production capture is not enabled for this agent`.** Turn on the agent's permission. No restart needed.
+- **`this key is bound to a different flywheel`.** The agent id in your code and the name the key was made for differ. Use the same id, or get a key for this agent.
+- **`this agent is not registered`.** Start it once with its key. Python `attach()` registers unless `register=False`.
+- **`this flywheel key does not carry the 'turn.report' scope`.** The key predates conversation upload. Replace it.
+
+## Conversations arrive, but there is nothing to learn from
+
+- **No message text was sent.** Learning needs the second permission and the model calls themselves. Python records model calls for LangChain, LangGraph and Google ADK only; for anything else, [push OpenTelemetry traces](/guides/opentelemetry-push).
+- **`this agent's production turns are attributed to no Product`.** The agent must belong to exactly one agent or Product in your dashboard.
+- **Kept but not learned from:** the turns contain personal data, or hold no final answer. Python: call `px.record_answer(turn_id, text)` for each turn.
+- **`flywheel_capture_has_no_decision_points`.** Nothing that has arrived holds a decision to learn from yet. Let more conversations arrive.
+
+## Pushed traces are refused
+
+| Status | Fix |
+|:--|:--|
+| `403 production_capture_not_enabled` or `model_content_capture_not_enabled` | Turn on both permissions |
+| `415` | Send `application/x-protobuf` or `application/json`, gzip or uncompressed |
+| `400` | The body is not an OTLP trace export. Upload trace files instead of pushing them |
+| Pushes succeed, nothing to learn from | The spans carry no message content. Switch it on in your instrumentation |
+
+## Requests fail with `429`
+
+Your organization is over a rate limit. The SDKs wait and retry. If it persists, send fewer, larger requests; give a Collector's exporter a batch processor and `sending_queue: num_consumers: 1`.
+
+## Your agent is not running the approved version
+
+- **Not approved yet, or not serving yet.** Approve in **Decisions**.
+- **Python `apply_current_policy()` returned `{}`.** It logs why on the `agent_flywheel` logger: nothing approved, no key, unreachable control plane, or a stored-file address (`gs://`, `s3://`, `file://`).
+- **Python `policy_source()` still serves the old model.** It refreshes about every five minutes. `snap.stale_for_s > 0` means refreshes are failing.
+- **The prompt did not change.** Python never applies a prompt for you: `fw.prompt_decision(...).reason` says why it may not be applied. Node logs a reason for each half it did not apply.
+- **Node: only one half applied.** The startup pair check names which half is missing and why. The model half needs `allowConversationAccess` and a host that accepts the `percepteye-flywheel` provider.
+- **Node: the model did not change after approval.** The model is read once at startup. Restart to pick up a new one.

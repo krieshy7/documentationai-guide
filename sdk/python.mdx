@@ -1,0 +1,312 @@
+---
+title: "Python SDK"
+description: "Reference for agent-flywheel, the Python SDK. serve(), attach(), the approved-policy readers, outcomes, adapters, events and errors."
+---
+
+## Install
+
+```bash
+pip install agent-flywheel                # one runtime dependency: httpx
+pip install "agent-flywheel[otel]"        # also emit outcomes as OpenTelemetry spans
+```
+
+Python 3.10 to 3.13. MIT licensed. Source: [percepteye-ai/agent-flywheel](https://github.com/percepteye-ai/agent-flywheel).
+
+```python
+import agent_flywheel as fw
+```
+
+| Function | Use it for |
+|:--|:--|
+| [`serve()`](#serve) | Run practice tasks (training mode) |
+| [`attach()`](#attach) | Record the turns you serve (production) |
+| [`record_tool_call()`](#record_tool_call) | Record an outcome you know |
+| [`apply_current_policy()`](#apply_current_policy) | The approved model, once at startup |
+| [`policy_source()`](#policy_source) | The approved model and prompt, kept current per turn |
+| [`current_prompt()`, `prompt_decision()`](#current_prompt-and-prompt_decision) | The approved prompt, and whether to apply it |
+| [`current_capture()`](#current_capture) | Which capture you are in |
+| [`current_task_id()`, `hosted_model_url()`](#inside-a-practice-task) | The task you were handed; non-policy models |
+
+## serve()
+
+```python
+fw.serve(
+    entrypoint,                 # "module:attr", an argv list, or (inprocess only) an object
+    *,
+    agent_id: str,
+    input_shape: str,           # "text" | "messages" | "dict"
+    **options,
+) -> int
+```
+
+Claims practice tasks, runs each in a fresh child process, reports outcomes, and blocks until it stops. It runs only with `PERCEPTEYE_AGENT_MODE=training` (or `mode="training"`): unset means `production`, where it prints one line and returns `0` before opening any connection. Practice also needs **Allow practice runs** on the agent in Mission Control; `serve()` says so at registration when it is off.
+
+| Argument | Default | What it does |
+|:--|:--|:--|
+| `entrypoint` | required | `"module:attr"`, an argv `list`, or a constructed object (inprocess only) |
+| `agent_id` | required | The agent this process serves for. The key is bound to it |
+| `input_shape` | required | `"text"`, `"messages"` or `"dict"`. Declared, never inferred |
+| `mode` | `None` | Overrides `PERCEPTEYE_AGENT_MODE`. Unset everywhere means `production` |
+| `transport` | `"attach"` | The only value in contract `flywheel/1` |
+| `control_plane_url` | `None` | Then `PERCEPTEYE_CONTROL_PLANE_URL`, then `https://launch.percepteye.ai/api/flywheel/v1` |
+| `api_key` | `None` | Then `PERCEPTEYE_API_KEY`, then the key stored by `agent-flywheel login` |
+| `artifacts_dir` | `None` | Defaults to `./.percepteye-artifacts`. Point it outside any checkout |
+| `isolation` | `"subprocess"` | Or `"inprocess"` (capped at `concurrency=1`, no real timeout) |
+| `concurrency` | `1` | Tasks in flight. One claim asks for at most 16 |
+| `rollout_timeout_s` | `900.0` | Local ceiling on one task |
+| `max_rollouts` | `None` | Stop after this many complete. The only clean exit |
+| `on_event` | `None` | `Callable[[str, dict], None]`. See [Events](#events) |
+| `method` | `None` | Name the entrypoint method instead of probing |
+| `adapters` | `"auto"` | `"auto"`, `[]`, or names: `"langchain"`, `"adk"` |
+| `introspect` | `True` | Agent discovery. Also gated by `PERCEPTEYE_INTROSPECT` |
+| `describe` | `None` | `{"system_prompt", "tools", "model"}` for an agent nothing can read. Wins over reflection |
+| `rules` | `None` | Your Product's workflow rules, one prose rule per string. `None` sends nothing, `[]` retracts |
+| `gate_flag` | `None` | How a CLI binary spells its completion-gate option |
+| `endpoint_env` | `None` | `(url_var, key_var)` your agent reads its endpoint from |
+| `command_output_adapter` | `None` | Interpret a CLI's structured stdout. Without one, stdout is final text |
+| `reports_tool_calls` | `False` | Assert that a per-call outcome is reported for every call |
+| `execution_snapshot` | `None` | Adapter-owned prepare/attest/release lifecycle for exact execution identity |
+| `attested_execution_components` | `None` | `{name: lowercase_sha256}` evidence for execution identity |
+| `volatile_command_values` | `None` | Command options whose value is transport, not identity, e.g. `("--daemon-socket",)` |
+| `harness_snapshot` | `None` | Deprecated alias for `execution_snapshot` |
+
+**Everything that can be misconfigured is checked before the first task**, in this order: mode, transport, URL and key, `/health` and contract `flywheel/1`, unroutable provider variables, entrypoint, isolation. Each raises there, never mid-run.
+
+### Entrypoints
+
+| `"module:attr"` resolves to | What happens |
+|:--|:--|
+| A class | Instantiated with no arguments |
+| A zero-argument factory | Called; its return value is the agent |
+| An object with `invoke` / `run` / `execute` / `chat` | Used as-is |
+| A function taking the task | Treated as a factory, so it raises `TypeError`. Wrap it in a class or factory |
+
+The method is probed in order: `invoke`, `run`, `execute`, `chat`, `__call__`. `async def` is awaited. Resolution happens once at startup and raises there, listing what was available.
+
+| `input_shape` | Your entrypoint receives |
+|:--|:--|
+| `"text"` | `"the task description"` |
+| `"messages"` | `[{"role": "user", "content": "the task description"}]` |
+| `"dict"` | `{"input": "the task description"}` |
+
+For argv entrypoints, see [CLI agents](/guides/cli-agents).
+
+### Stopping
+
+`max_rollouts=N` is the only clean exit. Nothing in the package catches `SIGINT` or `SIGTERM`: Ctrl-C drains in-flight tasks first (up to `rollout_timeout_s`); `SIGTERM` orphans them and the control plane reclaims them by lease expiry. Revoking the key does not stop the loop; it keeps retrying and emitting `claim_failed`.
+
+### A result is never silently lost
+
+Each outcome is written to a durable outbox under `artifacts_dir` before it is sent, and held results are delivered before the next claim, including by a later process over the same directory. A permanent refusal is retired (renamed, never deleted) and you are told where. No bearer credential is written to disk.
+
+## Events
+
+`on_event` is the only way to see the delivery path. Wire it in production.
+
+| Event | When | Payload |
+|:--|:--|:--|
+| `claim_empty` | A claim returned no work | `poll_after_ms` |
+| `claim_failed` | The claim itself failed | `error` |
+| `rollout_start` | A claimed task began | `rollout_id` |
+| `rollout_reported` | The result was accepted | `rollout_id`, `grade`, `duplicate`, `exclusion` |
+| `rollout_crash` | The task raised and was abandoned | `rollout_id`, `error` |
+| `report_failed` | The work happened; delivering it did not | `rollout_id`, `error` |
+| `artifact_failed` | Collecting artifacts failed; still reported, excluded from training | `rollout_id`, `name`, `error` |
+| `lease_lost` | The lease lapsed or was taken back | `rollout_id` |
+| `heartbeat_failed` | A renewal could not be delivered | `rollout_id`, `error` |
+| `serve_failed` | The SDK failed while running a task; still reported | `rollout_id`, `error` |
+| `abandon_failed` | Abandoning a crashed task could not be delivered | `rollout_id`, `error` |
+| `episode_plan` | How a task's budget was split | `rollout_id`, `budget_s`, `child_s`, `teardown_s`, `delivery_s` |
+| `harness_call_ceiling_inert` | The per-call ceiling exceeds the episode's remaining time (once) | `worst_case_call_s`, `child_s` |
+| `outcome_spooled` | Result held in the outbox | `rollout_id`, `reason`, `path` |
+| `outcome_spool_failed` | Could not write to the outbox; delivery attempted anyway | `rollout_id`, `error` |
+| `outcome_undeliverable` | Refused permanently; retired, never deleted | `rollout_id`, `status`, `error`, `path` |
+| `outcome_unrebuildable` | A held result could not be read back; moved aside | `rollout_id`, `error`, `path` |
+| `outcome_abandoned_in_outbox` | A held result older than seven days; kept, no longer retried | `rollout_id`, `age_s`, `path` |
+| `drain_failed` | Delivering held results failed; claiming continues | `error` |
+| `delivery_brake` | Three permanent refusals in a row; claiming stops | `consecutive_permanent_refusals`, `outbox` |
+
+`claim_empty` versus `claim_failed` tells an empty queue from a broken route. The callback runs synchronously on three different threads; keep it cheap. Exceptions it raises are swallowed.
+
+## attach()
+
+```python
+px = fw.attach(agent_id="support-agent", trajectory_root="/var/lib/percepteye")
+```
+
+| Argument | Default | Notes |
+|:--|:--|:--|
+| `agent_id` | required | 1–255 characters; no path separators, `.` or `..` |
+| `trajectory_root` | required | Where every turn is written |
+| `adapters` | `"auto"` | Binds every built-in whose framework is installed |
+| `register` | `True` | `False` skips the control plane entirely |
+| `retention_turns` | `None` | Keep only the most recent N turns on disk |
+| `control_plane_url`, `api_key` | env | As for `serve()` |
+| `execution_entrypoint` | `None` | The live agent, for exact execution identity |
+| `execution_input_shape`, `execution_method` | `"text"`, `None` | The call surface of `execution_entrypoint` |
+| `attested_execution_components` | `None` | Opaque adapter evidence for execution identity |
+| `describe` | `None` | The agent's own `system_prompt` / `tools` / `model` |
+| `rules` | `None` | As for `serve()` |
+
+With `register=True`, startup makes `POST /agents` (as `mode: "production"`) then `GET /policy/current`, plus `POST /agents/{agent_id}/rulebook` in the background when `rules=` is given. Everything fails open.
+
+| On the `Attachment` | |
+|:--|:--|
+| `.turn(turn_id=None, conversation_id=None, task_id=None, input_text=None)` | Context manager; yields the turn id |
+| `.record_answer(turn_id, text)` | What the agent answered; call after the scope closes |
+| `.read(turn_id)` | That turn's `list[ToolCallOutcome]`, or `None` |
+| `.read_turn(turn_id)` | The task and answer text recorded for that turn |
+| `.flush(include_unanswered=False, batch_size=64)` | Upload now |
+| `.prune(keep_last=None, older_than_s=None)` | Delete turn directories; no argument deletes nothing |
+| `.may_upload`, `.upload_refusal` | Whether turns may upload, and why not |
+| `.may_capture_model_content`, `.model_content_refusal` | Whether model content is recorded, and why not |
+| `.policy` | What the control plane said to run (informational) |
+| `.agent_fingerprint` | `{"execution_sha256": ...}` only when reconciliation was exact |
+| `.adapters_bound` | e.g. `("adk", "langchain")` |
+| `.rulebook`, `.rulebook_refusal`, `.wait_for_rulebook(timeout=None)` | The receipt for `rules=` |
+| `.close()` | Unbind and send what is waiting. Idempotent; also a context manager |
+
+Guide: [Production capture](/guides/production-capture).
+
+## record_tool_call()
+
+```python
+fw.record_tool_call(
+    name, arguments=None, *,
+    outcome,                    # "ok" | "failed" | "unknown", required
+    status_code,                # int | None, required
+    output=None, error=None, error_class=None, latency_ms=None,
+    agent_name=None, tool_call_id=None, entity_ids=None,
+) -> None
+```
+
+A no-op outside a practice task or turn. See [Outcomes](/concepts/outcomes).
+
+## apply_current_policy()
+
+```python
+kw = fw.apply_current_policy(*, agent_id, control_plane_url=None, api_key=None, set_env=False)
+```
+
+Returns `{"base_url", "api_key", "model"}` or `{}` (keep your configuration). Never raises into startup. `set_env=True` exports `OPENAI_BASE_URL` and `OPENAI_API_KEY`.
+
+Lower level: `current_policy(agent_id=...)` returns the raw `/policy/current` body; `endpoint_kwargs(policy, *, api_key=None, flywheel_key=None, control_plane_url=None)` turns a body into client arguments; `is_withdrawn(policy)` and `is_archive_ref(model)` are the checks it applies.
+
+## policy_source()
+
+```python
+src = fw.policy_source(*, agent_id, ttl_s=300.0, control_plane_url=None, api_key=None, on_change=None)
+snap = src.current()            # call per turn
+```
+
+| `PolicySnapshot` field | Meaning |
+|:--|:--|
+| `base_url`, `api_key`, `model` | What to run; empty when nothing is deployed |
+| `changed` | `True` on the one snapshot that first reports a change |
+| `withdrawn` | `True` when a person rolled back with nothing to serve: return to your own configuration |
+| `prompt` | A `PromptDecision` for the approved prompt served now |
+| `stale_for_s` | `0.0` while refreshes succeed; seconds past the TTL while they fail |
+| `last_refresh_ok` | `False` after a failed attempt |
+| `serving_generation` | Moves when anything to run moves, the prompt included |
+
+`snap.as_kwargs()` returns the `apply_current_policy()` shape. TTL floor is 30 s; the server's `ttl_s` hint wins over yours; ±10% jitter; one refresh attempt of 1 s. `PolicySource` is a context manager.
+
+## current_prompt() and prompt_decision()
+
+```python
+served = fw.current_prompt(*, agent_id, control_plane_url=None, api_key=None)
+decision = fw.prompt_decision(served)     # PromptDecision(apply, text, reason)
+```
+
+`served` fields: `name`, `version`, `text`, `sha256`, `candidate_kind`, `status`, `model_prompt_checksum`, `stale_baseline`. `prompt_decision()` refuses when there is no text, the baseline is stale, the status is not `approved`/`delivered`, or the checksums disagree. `text` is `None` on every refusal. See [Apply the approved model and prompt](/guides/apply-approved-policy).
+
+## current_capture()
+
+```python
+match fw.current_capture():
+    case ("rollout", rid): ...    # inside a serve() practice task
+    case ("turn", tid):    ...    # inside attach().turn()
+    case None:             ...    # neither
+```
+
+<Callout kind="alert">
+
+`current_rollout_id()` returns the turn id inside `attach().turn()`, so it is not a practice-versus-production test. Use `current_capture()`.
+
+</Callout>
+
+`current_mode()` and `resolve_mode(explicit=None)` return the resolved mode.
+
+## Inside a practice task
+
+New in 0.4.0, for agents backed by their own environment: a benchmark harness, a simulator, a test suite.
+
+```python
+task = fw.current_task_id()          # the task this rollout was handed, or None
+url = fw.hosted_model_url("openrouter")   # a NON-policy model, or None outside a rollout
+sim = OpenAI(base_url=url, api_key=os.environ["OPENAI_API_KEY"])
+```
+
+| Function | Returns |
+|:--|:--|
+| `current_task_id()` | For a task you registered with the control plane, your own id, so your environment can start and grade exactly that task. For a generated task, its opaque id. Inside `attach().turn()`, the turn's `task_id`. Child processes read `PERCEPTEYE_TASK_ID` |
+| `hosted_model_url(provider)` | Where this rollout reaches a model that is not the policy under training (a user simulator, a judge, an embedding model) through Mission Control's gateway. Providers include `openai`, `anthropic`, `gemini`, `vertex`, `openrouter`. For OpenAI-compatible providers it is an OpenAI client's base URL as is. Child processes read `PERCEPTEYE_HOSTED_URL` |
+
+Inside a rollout every OpenAI or Anthropic call is the policy's, whatever `model` you name. Calls through `hosted_model_url()` are your organization's own, paid as hosted calls, and never recorded as training rows.
+
+A Python entrypoint reports its own grade by returning a `RolloutOutput` with `reward` and `success`. A command agent writes `$PERCEPTEYE_TRAJECTORY_DIR/outcome.json` instead: see [CLI agents](/guides/cli-agents#report-your-own-grade).
+
+## Adapters
+
+| Adapter | Distribution | Covers | `ok` | `failed` |
+|:--|:--|:--|:--|:--|
+| `langchain` | `langchain-core >=0.3,<2` | LangChain and LangGraph | `ToolMessage` with `status="success"` | Raised, or `status="error"` |
+| `adk` | `google-adk >=1,<3` | Google ADK | Never reported | Raised, or a dict with a truthy `"error"` |
+
+Everything else is `unknown`. `status_code` is always `null` from an adapter. No adapter imports its framework until it binds, so adapters add no dependencies.
+
+| `adapters=` | Behavior |
+|:--|:--|
+| `"auto"` | Bind every built-in whose framework is installed |
+| `[]` | Bind nothing |
+| `["langchain"]` | Require it; raises `RoutingNotInstallable` if it cannot bind |
+
+Ship your own adapter as one entry-point factory in the `agent_flywheel.adapters` group. It must not import its framework at module scope, must report `unknown` rather than guess, and must fail loudly at bind time.
+
+## Customer API client
+
+```python
+from agent_flywheel.customer_api import CustomerApiClient, CustomerRefusal
+
+with CustomerApiClient() as mc:           # mck_ key: api_key= or PERCEPTEYE_MC_API_KEY
+    runs = mc.list_runs(product_id="prod_123", include_prompt_evolutions=True)
+    elig = mc.training_eligibility(agent_id="agent_123")
+    sets = mc.list_eval_sets(product_id="prod_123", limit=20)
+    sec  = mc.hillclimb_security("run_123")
+```
+
+| Method | Arguments |
+|:--|:--|
+| `list_runs()` | `status`, `limit`, `offset`, `started_after`, `started_before`, `product_id`, `include_background`, `include_prompt_evolutions` |
+| `training_eligibility()` | `agent_id`, `product_id` |
+| `list_eval_sets()` | `product_id`, `limit`, `offset` |
+| `hillclimb_security(run_id)` | — |
+
+A refusal raises `CustomerRefusal` with `code`, `message`, `customer_message`, `customer_words`, `remediation`, `fault_owner`, `retryable`. Show `plain_words` to a person. Customer contract 1.31.0.
+
+## Errors
+
+| Exception | Raised when |
+|:--|:--|
+| `FlywheelError` | Base class |
+| `ConfigurationError` | Anything misconfigured, before the first task |
+| `EntrypointError` | The entrypoint does not resolve, or `input_shape` is invalid |
+| `RoutingNotInstallable` | A named adapter cannot bind. Carries `reason`: `AdapterFrameworkAbsent`, `VersionOutOfRange`, `SymbolMissing` |
+| `ModeNotAvailable` | A `transport` this contract does not speak |
+| `ContractViolation` | A record the wire contract forbids, such as an outcome other than the three |
+| `TransportError` | A control-plane request failed |
+| `LeaseLost` | A task's lease lapsed or was taken back |
+
+## CLI
+
+See [Python CLI](/sdk/python-cli).

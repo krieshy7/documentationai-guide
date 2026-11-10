@@ -1,0 +1,102 @@
+---
+title: "Apply the approved model and prompt"
+description: "Pick up the model and system prompt a person approved, with no redeploy, and roll back the same way."
+---
+
+## Python SDK
+
+The Python SDK hands the approved pair back; your code applies it. Use these in the process serving your users, never inside `serve()`.
+
+### The model, once at startup
+
+```python
+import agent_flywheel as fw
+from openai import OpenAI
+
+kw = fw.apply_current_policy(agent_id="support-agent")
+if kw:                                  # {} means keep your current configuration
+    client = OpenAI(base_url=kw["base_url"], api_key=kw["api_key"])
+    model = kw["model"]
+```
+
+One `GET /policy/current`. No registration, no practice tasks, no capture. It returns `{}` for every reason it cannot act (nothing approved, no key, unreachable control plane, a stored-file address such as `gs://`) and logs which on the `agent_flywheel` logger. It never raises into your startup. `set_env=True` also exports `OPENAI_BASE_URL` and `OPENAI_API_KEY`.
+
+### The model and prompt, per turn
+
+A one-shot read means a rollback would wait for your next deploy. `policy_source()` keeps up:
+
+```python
+policy = fw.policy_source(agent_id="support-agent", ttl_s=300)
+
+def handle(user_text):
+    snap = policy.current()                 # call per turn; a cache read between refreshes
+    if snap.changed:                        # rebuild only on an actual change
+        if snap.withdrawn:
+            client, model = build_my_own_client()
+        else:
+            client = OpenAI(base_url=snap.base_url, api_key=snap.api_key)
+            model = snap.model
+    # Fall back to YOUR prompt, not the last one applied: a withdrawn prompt must stop running.
+    system_prompt = snap.prompt.text if snap.prompt.apply else MY_PROMPT
+    ...
+```
+
+- **Nothing polls in the background.** The refresh runs inside your `current()` call once the TTL expires. Default TTL is 300 s; the control plane's hint wins; the floor is 30 s; ±10% jitter per handle.
+- **Serve-stale, always.** After its first success, a failed refresh keeps the last good snapshot. `snap.stale_for_s` is the number to alert on; `snap.last_refresh_ok` is `False` while refreshes fail.
+- **A withdrawal is given back.** When a person rolls the agent back with nothing to serve, `snap.withdrawn` is `True` and `on_change` fires. Go back to your own configuration.
+- **`serving_generation`** moves whenever anything to run moves, the prompt included. Use it to cycle replicas.
+
+### The prompt, on its own
+
+```python
+served = fw.current_prompt(agent_id="support-agent")
+decision = fw.prompt_decision(served)
+if decision.apply:
+    system_prompt = decision.text
+else:
+    log.info("keeping the current prompt: %s", decision.reason)
+```
+
+`prompt_decision()` refuses, naming the cause, when:
+
+| It refuses when | Because |
+|:--|:--|
+| No text to apply | Nothing approved yet, or the control plane could not answer |
+| `stale_baseline` is true | Your own baseline prompt changed after the pair was certified |
+| `status` is not `approved` or `delivered` | Only a version a person approved is applied |
+| `sha256` and `model_prompt_checksum` differ | The pair disagrees with itself |
+
+`text` is `None` on every refusal, never `""`, so a refusal can never blank your agent's prompt. The SDK never applies a prompt for you.
+
+## Node plugin (OpenClaw)
+
+In `production` mode the plugin applies both halves for you:
+
+- **The model.** At startup it reads `GET /policy/current`, registers a provider `percepteye-flywheel` whose transport points at the served `base_url`, and names it from `before_model_resolve`. Needs `hooks.allowConversationAccess: true`. Read once: restart to pick up a new model.
+- **The prompt.** It reads `GET /prompt/current` and replaces the prompt your host assembled, every attempt. At most once per `ttl_s` (never faster than 30 s) it re-reads `/policy/current` in the background of a turn; a changed `prompt_generation` fetches the new text. The turn that noticed keeps its prompt; the next turn runs the new one.
+
+Both apply to this agent's own served turns only: never a subagent, a scheduled (cron) turn, or another agent in the same gateway. If identity cannot be established, nothing is applied.
+
+**The pair check is the line worth reading.** When both halves land, the startup log confirms the approved prompt is running on the checkpoint it was certified with. When only one lands, it warns and names which half is missing and why.
+
+### What stops each half
+
+| Prompt not applied | Model not applied |
+|:--|:--|
+| No API key | No API key |
+| `PERCEPTEYE_APPLY_PROMPT=0` | `PERCEPTEYE_APPLY_MODEL=0` |
+| Empty answer: nothing approved | `allowConversationAccess` missing |
+| `withdrawn` | Host refused the provider registration |
+| `stale_baseline` | The model was withdrawn |
+| Status not `approved`/`delivered` | No endpoint served (champion arm, or candidate not deployed) |
+| Prompt checksum and checkpoint disagree | An archive reference (`gs://`, `s3://`) as the model |
+
+Each refusal is logged with its own reason. An unreachable control plane costs the improvement and nothing else.
+
+## How long a new approval takes
+
+About one `ttl_s` plus one turn after approval, with no redeploy (Python `policy_source()` and the Node prompt half). The Node model half and Python `apply_current_policy()` take effect on the next restart.
+
+## Roll back
+
+Move the agent back to champion on its page, or withdraw the prompt in **Prompts**. See [Approvals](/concepts/approvals).

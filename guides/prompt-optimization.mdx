@@ -1,0 +1,59 @@
+---
+title: "Prompt optimization"
+description: "Mission Control evolves your agent's system prompt from its own traces, keeps improving it as traces arrive, and ships the approved one back beside the model."
+---
+
+## How it works
+
+- **Evolutionary, not one-shot.** Each generation proposes edits to your prompt as diffs against your own baseline, never a rewrite from nothing, grounded in where your agent actually failed. A candidate whose diff does not apply cleanly is rejected.
+- **Multi-objective.** Every candidate is scored on several separate axes. The Pareto frontier is kept rather than blending scores into one number, and what the frontier got wrong feeds the next generation.
+- **Learned from your agent's own decisions.** A prompt run replays your agent's recorded decisions, so it needs the model-content permission (**Include the message text**). Nothing is re-run against your users.
+- **It keeps improving while you decide.** Each new round starts with the candidate already waiting as the bar to beat. It is replaced only by a prompt that measures better, and the older waiting one is retired from your queue. An approval already granted is never taken back.
+- **Certified, then approved.** The winner is certified in a full-scale run, paired with the checkpoint it was measured on, and sent to **Decisions** as one prompt-pair delivery with a 2×2 evaluation (base or tuned model × your prompt or the new one).
+
+## Is my agent ready?
+
+```python
+from agent_flywheel.customer_api import CustomerApiClient
+
+with CustomerApiClient() as mc:                       # needs an mck_ key
+    path = mc.training_eligibility(agent_id="agent_123")["prompt_optimization"]
+    # path["mode"], path["can_run"], path["needs"]
+    runs = mc.list_runs(include_prompt_evolutions=True)
+```
+
+```js
+import { CustomerApiClient } from "@percepteye/agent-flywheel/customer-api";
+
+const mc = new CustomerApiClient();
+const path = (await mc.trainingEligibility({ agentId: "agent_123" })).prompt_optimization;
+const runs = await mc.listRuns({ includePromptEvolutions: true });
+```
+
+`needs` is a sentence you can show a person.
+
+## How a new prompt reaches a running agent
+
+Nothing is pushed into your agent. Your process pulls:
+
+1. Per turn, `policy_source().current()` (Python) or the plugin's prompt hook (Node) uses a cached answer. When `ttl_s` expires, it re-reads `GET /policy/current`.
+2. The policy carries `prompt_generation`, naming the approval being served. Only when it changes does the SDK fetch the text from `GET /prompt/current`.
+3. The text is checked (approved status, unchanged baseline, matching checksum) and applied at the start of the next turn. A turn never changes prompt halfway.
+4. An empty answer or a failed read changes nothing. A withdrawal is the one answer that takes the prompt away, and your own prompt runs from the next turn.
+
+The delay is about one `ttl_s` plus one turn, with no redeploy. See [Apply the approved model and prompt](/guides/apply-approved-policy) for the code.
+
+## Approve, reject, withdraw
+
+Approve in **Decisions**. Withdraw in **Prompts** → the prompt → *Versions of this prompt* → **Withdraw**. Over the API with an `mck_` key:
+
+```bash
+curl -X POST "$MC/api/v2/approvals/$APPROVAL_ID/approve" \
+  -H "Authorization: Bearer $MCK" -H "Content-Type: application/json" -d '{}'
+
+curl -X POST "$MC/api/v2/prompt-deliveries/$DELIVERY_ID/withdraw" \
+  -H "Authorization: Bearer $MCK" -H "Content-Type: application/json" \
+  -d '{"reason": "answers got too long"}'
+```
+
+The bytes served are pinned at approval: a later round can never change what an approval already covers. Approval is never automatic. See [Approvals](/concepts/approvals).

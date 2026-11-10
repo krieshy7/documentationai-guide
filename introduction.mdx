@@ -1,67 +1,61 @@
 ---
-title: Agent Flywheel
-description: Capture agent work with runtime SDKs and plugins, then use Mission Control to generate, train, evaluate, and improve agents with approval controls.
+title: "Agent Flywheel"
+description: "Turn the work your agent already does into training data, and get back a better model and system prompt, approved by a person on your side."
 ---
 
 ## Improve agents from real work
 
-Capture agent activity in the runtime, send evidence to Mission Control, and approve evaluated improvements before release.
+Agent Flywheel has two halves, joined by one key:
 
-<Image src="https://blob-cdn.documentation.ai/org-2ebb2ef5-dd91-493f-9938-283fbdb14c81/doc-d2a73d2e-4391-4446-a5c8-2d0b41b7c4c1/1774416384221-0wlxa0j3sb2i-Image-5.png?q=85&fm=auto&auto=compress%2Cformat" alt="Agent Flywheel workflow" width="800" height="400" />
+| | The SDK or plugin | The control plane |
+|:--|:--|:--|
+| **Runs** | In your process or harness, beside your agent | Hosted by PerceptEye at [launch.percepteye.ai](https://launch.percepteye.ai/onboard/agent-sdk) (Mission Control) |
+| **Does** | Runs practice tasks, records every tool outcome, captures the turns you serve, picks up the approved model and prompt | Writes tasks from your agent's real tools, grades every run, trains the policy, evolves the system prompt, measures each candidate against what you run today |
+| **You bring** | `pip install agent-flywheel` or `openclaw plugins install @percepteye/agent-flywheel` | An email address. Free plan, no credit card |
 
 ```text
-Agent runtime → SDK/plugin capture → outbound evidence → Mission Control: tasks → grading → training → evaluation → approval
+Your agent (unchanged)
+  → SDK / plugin records tool outcomes and turns
+  → outbound HTTPS to the control plane
+  → Mission Control: tasks → grading → training → evaluation
+  → a person approves in Decisions
+  → your agent picks up the approved model and prompt
 ```
 
-Mission Control runs the task, grading, training, evaluation, and approval workflow server-side. Local SDKs and plugins capture and send evidence; they do not manage rollout approval.
+Your agent keeps running where it runs today, behind your firewall, on your credentials. There is no container to build, no GPU to provision, and no inbound port to open: every connection is opened from your side.
 
-<Columns cols={3}>
-  <Card title="1. Capture" icon="code" href="/integrations">
+## Three things it gives you
 
-  Runtime SDKs and plugins collect agent activity and tool evidence.
+1. **An agent that improves in place.** A policy trained on this agent's own work: its prompt, its tools, its failure modes. Not a generic model.
+2. **A system prompt that keeps evolving.** Mission Control evolves your prompt from your agent's own traces and keeps improving it as new traces arrive. See [Prompt optimization](/guides/prompt-optimization).
+3. **Honest evidence.** Every tool call is recorded as `ok`, `failed` or `unknown`. `unknown` is never rounded up to `ok`. See [Outcomes](/concepts/outcomes).
 
-  </Card>
-  <Card title="2. Improve" icon="settings" href="/concepts">
+Nothing reaches your users until a person approves it. See [Approvals](/concepts/approvals).
 
-  Mission Control turns captured evidence into tasks, grades results, and trains agents.
+## Pick your integration
 
-  </Card>
-  <Card title="3. Approve" icon="check-circle" href="/quickstart">
+| You have | Use | Start here |
+|:--|:--|:--|
+| A Python agent (LangChain, LangGraph, Google ADK, or custom) | Python SDK, `agent-flywheel` | [Python SDK](/sdk/python) |
+| A command-line agent in any language | Python SDK with an argv entrypoint | [CLI agents](/guides/cli-agents) |
+| An OpenClaw agent | Node plugin, `@percepteye/agent-flywheel` | [Node plugin](/sdk/node) |
+| A DeepSeek Harness agent | Node plugin, record-only | [Node plugin](/sdk/node#deepseek-harness) |
+| An agent that already exports OpenTelemetry GenAI spans | No install: push the spans | [OpenTelemetry push](/guides/opentelemetry-push) |
 
-  Mission Control evaluates candidate changes and manages approval before promotion.
+Pick one per agent. Never install both SDKs for the same agent.
 
-  </Card>
-</Columns>
+## Responsibilities
 
-### Responsibilities
-
-| Component | Responsibility |
-| --- | --- |
-| Runtime | Runs the agent and produces activity and tool evidence. |
-| Mission Control | Handles server-side tasks, grading, training, evaluation, and approval. |
-| Agent Skill | Lets operators manage server-side training from an agent workflow. |
+| Component | Responsible for |
+|:--|:--|
+| **Your runtime** | Runs the agent, unchanged. Produces the evidence. |
+| **SDK or plugin** | Records outcomes and turns, runs practice tasks in training mode, applies the approved pair in production. Opens every connection outbound. |
+| **Mission Control** | Task generation, grading, training, prompt optimization, evaluation, and the Decisions queue. |
+| **A person on your side** | Approves or rejects every model and prompt before it reaches your users. |
 
 ## Explore
 
-<Columns cols={4}>
-  <Card title="Quickstart" icon="rocket" href="/quickstart">
-
-  Capture your first agent work and follow the initial workflow.
-
-  </Card>
-  <Card title="Concepts" icon="book-open" href="/concepts">
-
-  Understand how evidence moves through tasks, grading, training, and evaluation.
-
-  </Card>
-  <Card title="Integrations" icon="database" href="/integrations">
-
-  Connect runtime SDKs and plugins to capture agent activity and tool evidence.
-
-  </Card>
-  <Card title="Authentication" icon="lock" href="/authentication">
-
-  Configure access for agents and workflow management.
-
-  </Card>
-</Columns>
+- [Quickstart](/quickstart): connect your first agent in a few minutes.
+- [Concepts](/concepts): how the loop closes.
+- [Authentication](/authentication): which key goes where.
+- [Integrations](/integrations): every supported harness and hook.
