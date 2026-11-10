@@ -1,0 +1,70 @@
+---
+title: "Python CLI"
+description: "The agent-flywheel command: login, logout, report, install-hooks and status."
+---
+
+```bash
+agent-flywheel <command> [options]
+```
+
+| Command | What it does |
+|:--|:--|
+| `login` | Create a key for one agent in your browser and store it locally |
+| `logout` | Forget the key stored locally for one agent |
+| `report` | Print your agent's real tool-failure rate from what was recorded |
+| `install-hooks` | Point goose at the tool-outcome recorder this package ships |
+| `status` | Report whether the host plugin is installed and current |
+
+## login
+
+```bash
+agent-flywheel login --agent-id my-agent [--control-plane-url URL] [--no-browser]
+```
+
+Starts a device login for that one agent: prints a short code and opens launch.percepteye.ai with the code filled in. After you sign in and click **Approve**, the `pefw_` key is stored in `$PERCEPTEYE_HOME/credentials.json` (default `~/.percepteye`, mode 0600). The Node plugin reads the same file.
+
+| Option | Default |
+|:--|:--|
+| `--agent-id` | `$PERCEPTEYE_AGENT_ID` |
+| `--control-plane-url` | `$PERCEPTEYE_CONTROL_PLANE_URL`, else the hosted control plane |
+| `--no-browser` | Print the link instead of opening a browser |
+
+## logout
+
+```bash
+agent-flywheel logout --agent-id my-agent [--control-plane-url URL]
+```
+
+Forgets the stored key. The key stays valid until it is revoked in **Settings** → **Agent keys**.
+
+## report
+
+```bash
+agent-flywheel report [DIRECTORY]
+```
+
+Reads a trajectory directory (default: the most recent session) and prints the real tool-failure rate. `unknown` calls are reported, never counted as successes. Works with no account and no network.
+
+## install-hooks
+
+```bash
+agent-flywheel install-hooks [--force]
+```
+
+Installs the goose host plugin that records each tool call's outcome to the trajectory. `--force` replaces a plugin directory this command did not install. With a key set and `PERCEPTEYE_AGENT_MODE` resolving to training, the goose hook also claims a practice task at `SessionStart` and reports the session at `Stop`; in production it only records. The command says which applies and names the control-plane URL it resolved.
+
+## status
+
+```bash
+agent-flywheel status
+```
+
+Reports whether the host plugin is installed and current, the control-plane URL, and whether practice tasks would be claimed.
+
+## Exit codes
+
+| Code | Meaning |
+|:--|:--|
+| `0` | Success |
+| `1` | The command failed, for example a login that was not approved |
+| `2` | A configuration error, such as an unreadable `PERCEPTEYE_AGENT_MODE`; the message names the variable and every accepted spelling |

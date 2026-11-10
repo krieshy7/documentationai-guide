@@ -1,0 +1,63 @@
+---
+title: "Configuration reference"
+description: "Every environment variable the Python SDK and Node plugin read, with defaults and precedence."
+---
+
+## Environment variables
+
+| Variable | Python | Node | Default | Meaning |
+|:--|:--|:--|:--|:--|
+| `PERCEPTEYE_API_KEY` | ✓ | ✓ | None | The agent's `pefw_` key. Without it nothing is sent |
+| `PERCEPTEYE_CONTROL_PLANE_URL` | ✓ | ✓ | `https://launch.percepteye.ai/api/flywheel/v1` | Control-plane base URL |
+| `PERCEPTEYE_AGENT_MODE` | ✓ | ✓ | `production` | `production` or `training`. Training is always explicit. See [Modes](/concepts/modes) |
+| `PERCEPTEYE_AGENT_ID` | CLI only | ✓ | Node: `openclaw` | Default agent for `login`/`logout`, and the Node plugin's agent name |
+| `PERCEPTEYE_INTROSPECT` | ✓ | ✓ | On | `0`, `false`, `no` or `off` disables agent discovery. A typo leaves it on |
+| `PERCEPTEYE_HOME` | ✓ | ✓ | `~/.percepteye` | Where captured turns, the outbox and `credentials.json` live |
+| `PERCEPTEYE_NO_PROMPT` | ✓ | | Unset | Any value stops `serve()` offering to create a key in a terminal |
+| `PERCEPTEYE_MC_API_KEY` | ✓ | ✓ | None | Customer-automation `mck_` key for the customer API client |
+| `PERCEPTEYE_CAPTURE` | | ✓ | On | `0` registers no hooks and records nothing |
+| `PERCEPTEYE_APPLY_PROMPT` | | ✓ | On | `0` leaves the system prompt alone |
+| `PERCEPTEYE_APPLY_MODEL` | | ✓ | On | `0` leaves the model alone |
+| `PERCEPTEYE_CAPTURE_DIR` | | ✓ | `$PERCEPTEYE_HOME/captured` | Production turn capture directory |
+| `PERCEPTEYE_TRAJECTORY_DIR` | ✓ | ✓ | Set per task | This task's directory. Append outcomes to `tool_calls.jsonl` there |
+| `PERCEPTEYE_ROLLOUT_ID` | Set by the SDK | | | This task's id, for tagging your own logs |
+| `PERCEPTEYE_TURN_INPUT` | Set by the SDK | | | The task text, for a command entrypoint |
+| `PERCEPTEYE_TASK_ID` | Set by the SDK | | | The id of the task this run was handed |
+| `PERCEPTEYE_HOSTED_URL` | Set by the SDK | | | Gateway base for non-policy models inside a run |
+
+Only `PERCEPTEYE_AGENT_MODE` and `PERCEPTEYE_INTROSPECT` change the Python SDK's behavior; the rest are addresses, credentials and locations.
+
+## Precedence
+
+| Setting | Python | Node |
+|:--|:--|:--|
+| Key | `api_key=` → `PERCEPTEYE_API_KEY` → stored key | `apiKey` → `PERCEPTEYE_API_KEY` → stored key |
+| URL | `control_plane_url=` → env → default | `controlPlaneUrl` → env → default |
+| Mode | `mode=` → env → `production` | `mode` → env → `production` |
+| Introspection | `introspect=` AND env: either off disables | Config or env: either off disables |
+
+In Python, an unreadable mode raises. In Node, it degrades to `production` and says so.
+
+## The one variable the SDK writes
+
+`apply_current_policy(set_env=True)` exports `OPENAI_BASE_URL` and `OPENAI_API_KEY`. It is off by default.
+
+## Files on disk
+
+| Path | Written by | Contents |
+|:--|:--|:--|
+| `$PERCEPTEYE_HOME/credentials.json` | `login` (both SDKs) | Stored `pefw_` keys, mode 0600 |
+| `$PERCEPTEYE_HOME/captured/<runId>/` | Node, production | Captured turns |
+| `$PERCEPTEYE_HOME/outbox/<agentId>/` | Node, training | Results not yet acknowledged |
+| `<trajectory_root>/<turn_id>/` | Python `attach()` | Captured turns |
+| `<artifacts_dir>/_percepteye/<rollout_id>/` | Python `serve()` | Per-task working directory and trajectory |
+
+## Network
+
+Every connection is outbound HTTPS to your control-plane URL. There is no listening socket in either package, so no inbound firewall rule, DNS record or certificate is needed.
+
+| Python transport setting | Value | Exposed |
+|:--|:--|:--|
+| Claim long-poll | 25 s | No |
+| Requested lease | 30 min | No |
+| HTTP timeout | 30 s | No |

@@ -1,0 +1,74 @@
+---
+title: "FAQ"
+description: "Short answers about your data, how your agent gets better, and how to use and stop Agent Flywheel."
+---
+
+## Your data
+
+### What do you receive?
+
+Only what you switch on. Your end users' turns cross only after an operator enables capture for that agent, which is off by default. Message text and what the model saw is a second, separate permission, also off by default. Never your tools' source code, and never your credentials. See [Production capture](/guides/production-capture).
+
+### What do you keep, and for how long?
+
+What your agent sends: its turns, its traces, and the results of practice tasks. Nothing is deleted by default. After your organization's retention window (90 days unless an admin changes it), older content is also copied to an archive. An admin can ask us to delete content older than the window in **Settings** → **Rollout retention**. Each improvement round keeps the conversations it learned from and was tested on.
+
+Your own copy on disk is yours; nothing deletes it unless you ask.
+
+### What do you do with personal data?
+
+We scan everything we receive for email addresses, phone numbers, card numbers, US social security numbers and IP addresses. In tool-call records a match is masked. In messages, answers and what the model saw, it is kept as sent and that turn is never learned from. The SDKs mask nothing on your side.
+
+### Does my agent's code leave my machine?
+
+No. Your agent runs where it runs today, on your credentials. Agent discovery sends its shape (system prompt, tool names, descriptions and schemas, provider and model), never your tools' source or return values. Turn it off with `introspect=False` or `PERCEPTEYE_INTROSPECT=0`.
+
+### Do I need to open a port, run a container, or provide a GPU?
+
+No. Neither package has a listening socket, so there is no inbound firewall rule, DNS record or certificate. Training runs on PerceptEye's GPUs.
+
+## Getting better
+
+### How does my agent get better?
+
+Mission Control learns from its real work. Each new version is tested against your agent's current best on conversations it has never seen; a version that does better comes to you in **Decisions**. The system prompt evolves too. See [Prompt optimization](/guides/prompt-optimization).
+
+### Who decides what my users get?
+
+You do. A new model or prompt reaches your agent only after a person approves it with an explicit approve control. A reply such as "sure, go ahead" is never read as an approval. See [Approvals](/concepts/approvals).
+
+### How is this different from an eval platform?
+
+An eval platform measures. This also improves: each round produces a new version of your agent, tested against the current best, for you to approve, delivered as an endpoint your agent already knows how to call.
+
+## Using it
+
+### Do I have to change my agent?
+
+No. LangChain, LangGraph and Google ADK calls are observed by adapters, with no Agent Flywheel code inside your agent. The OpenClaw plugin loads beside your agent. Your serving code wraps each turn in `px.turn()` if you use Python production capture.
+
+### What if my agent is built some other way?
+
+If it exports OpenTelemetry GenAI traces with message content, [push them](/guides/opentelemetry-push). A command-line agent in any language can run practice tasks through `serve()` with an argv list: see [CLI agents](/guides/cli-agents).
+
+### What does it install?
+
+Python: one runtime dependency, `httpx`. Adapters import their framework only when they bind. Node: zero runtime dependencies.
+
+### How do I stop it?
+
+- **Python:** stop calling `attach()`, or pass `register=False` to keep capture local. `serve()` runs only with `PERCEPTEYE_AGENT_MODE=training`; unset or `production`, it returns at once. `max_rollouts=` is the clean way to end a training run.
+- **Node:** `PERCEPTEYE_CAPTURE=0` registers nothing; `PERCEPTEYE_APPLY_PROMPT=0` and `PERCEPTEYE_APPLY_MODEL=0` stop each half of the approved pair.
+- **Either:** switch the agent's permission off in the dashboard. No restart needed.
+
+### What does `unknown` mean?
+
+A tool call nobody observed succeeding or failing. It is never rounded up to `ok`. See [Outcomes](/concepts/outcomes).
+
+### Python or Node?
+
+Python for a Python agent or a command-line agent you launch yourself. Node for an OpenClaw or DeepSeek Harness agent. Never both for one agent.
+
+### What license is this under?
+
+MIT, for both packages.

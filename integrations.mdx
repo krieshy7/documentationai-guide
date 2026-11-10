@@ -1,139 +1,71 @@
 ---
-title: Integrations
-description: >-
-  Choose the Agent Flywheel integration that fits your agent host, from
-  SDK-based capture and local hooks to approval-gated training workflows.
+title: "Integrations"
+description: "Choose the integration that fits your agent's host, from in-process SDK capture to harness plugins, local hooks and OpenTelemetry push."
 ---
+
 ## Choose by integration surface
 
-| Surface                        | Recommended when                                                                                       | Boundary                                   |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------ | ------------------------------------------ |
-| Python SDK                     | Your agent runs in Python and needs runtime instrumentation, training rollouts, or production capture. | Runs inside the agent process.             |
-| Node plugin                    | Your host is OpenClaw or DeepSeek Harness on Node `>=22.22.3`.                                         | Capabilities depend on the host.           |
-| goose or Gemini CLI hooks      | You need local, observe-only tool activity recording.                                                  | Writes trajectory data locally.            |
-| Canonical Agent Skill          | An operator needs to manage Mission Control training from a compatible Agent Skills client.            | Runs approval-gated, server-side training. |
-| Claude Code marketplace plugin | You use Claude Code and want the canonical Agent Skill distributed through its marketplace.            | Distribution wrapper, not a separate SDK.  |
+| Surface | Recommended when | Boundary |
+|:--|:--|:--|
+| **Python SDK** | A Python agent, or any CLI agent you launch yourself | Runs in your process. Practice tasks, production capture, approved pair handed back |
+| **Node plugin: OpenClaw** | An OpenClaw agent | Full workflow, applied for you. Needs conversation access |
+| **Node plugin: DeepSeek Harness** | A `dsh` agent | Records tool outcomes only |
+| **goose hook** | A goose agent | Installed by `agent-flywheel install-hooks`. Records outcomes; claims practice tasks only with `PERCEPTEYE_AGENT_MODE=training` |
+| **OpenTelemetry push** | An agent already exporting GenAI spans | No install. Production traffic only, no practice tasks |
 
-<Callout kind="info" collapsed="false">
-  **Need in-process runtime?** → Python SDK\
-  **Need a host plugin?** → OpenClaw full workflow or DeepSeek observe-only\
-  **Need local-only evidence?** → goose or Gemini CLI hooks\
-  **Need operator training controls?** → Agent Skill, with the Claude marketplace plugin for Claude Code
-</Callout>
+Quick routing:
 
-Host capabilities differ. Review the relevant section before choosing an integration if you need production capture, training rollouts, or prompt and model application.
+- Python or CLI agent → [Python SDK](/sdk/python)
+- OpenClaw → [Node plugin](/sdk/node)
+- Already on OpenTelemetry → [OpenTelemetry push](/guides/opentelemetry-push)
+- Operator automation → [Mission Control API](/api-reference/mission-control)
 
 ## Python SDK
 
-Use the `agent-flywheel` Python SDK when instrumentation belongs inside the agent process. It supports LangChain, LangGraph through LangChain callbacks, Google ADK, arbitrary CLI agents, and custom adapters.
+| Framework | How it's captured | Code in your agent |
+|:--|:--|:--|
+| **LangChain** | `langchain` adapter, auto-bound | None |
+| **LangGraph** | `langchain` adapter; attributes each call to its node via `langgraph_node` | None |
+| **Google ADK** | `adk` adapter, auto-bound | None |
+| **Any CLI agent** | `fw.serve(["my-agent", "run"], ...)` | None |
+| **Any structured CLI** | A `CommandOutputAdapter`; the generic `StreamFormat` parser reconciles tool lifecycles | None |
+| **prime-agent** (example) | argv + `PrimeAgentOutputAdapter` ([example](https://github.com/percepteye-ai/agent-flywheel/tree/main/examples/prime_agent)) | None |
+| **Custom adapter** | One entry-point factory in the `agent_flywheel.adapters` group | None |
 
-| Method               | Use it for                       | Boundary                                              |
-| -------------------- | -------------------------------- | ----------------------------------------------------- |
-| `serve()`            | Run training rollouts.           | Training execution inside the agent integration.      |
-| `attach()`           | Capture production activity.     | Production activity capture inside the agent process. |
-| `record_tool_call()` | Record an explicit tool outcome. | One explicit tool-call result.                        |
+| Method | Purpose |
+|:--|:--|
+| `serve()` | Practice tasks |
+| `attach()` | Production capture |
+| `record_tool_call()` | One explicit tool outcome |
+
+The zero-instrumentation claim is enforced by a test: a LangChain agent with no `agent_flywheel` import still reports every tool call.
 
 ## Node plugin
 
-Use `@percepteye/agent-flywheel` with OpenClaw or DeepSeek Harness on Node `>=22.22.3`.
-
-<Tabs>
-  <Tab title="OpenClaw" icon="zap">
-    OpenClaw supports tool outcome recording, training rollouts, production capture, and applying approved prompts and models. Enable conversation access explicitly before the plugin can observe conversation data.
-
-    ```bash
-    openclaw plugins install @percepteye/agent-flywheel
-    ```
-  </Tab>
-
-  <Tab title="DeepSeek Harness" icon="terminal">
-    DeepSeek Harness observes `tools/result` outcomes only. It does not provide training rollouts, production-turn capture, or prompt and model application.
-
-    Install the plugin for a named profile:
-
-    ```bash
-    dsh plugin --profile <name> add @percepteye/agent-flywheel
-    ```
-  </Tab>
-</Tabs>
-
-## goose and Gemini CLI hooks
-
-Use these hooks for local, observe-only tool activity recording. They use the Python standard library only and write trajectory-compatible `tool_calls.jsonl` data.
-
-<Tabs>
-  <Tab title="goose" icon="terminal">
-    Install the hook with:
-
-    ```bash
-    goose plugin install https://github.com/percepteye-ai/agent-flywheel-hooks
-    ```
-  </Tab>
-
-  <Tab title="Gemini CLI" icon="terminal">
-    Install the hook with:
-
-    ```bash
-    gemini extensions install https://github.com/percepteye-ai/agent-flywheel-hooks
-    ```
-  </Tab>
-</Tabs>
-
-Set `PERCEPTEYE_TRAJECTORY_DIR` to define where the hook writes trajectory data. Replace `/path/to/trajectory-directory` with the directory you want to use. The example does not prescribe a specific path.
+**OpenClaw:** tool outcome recording, practice tasks, production capture, and applying the approved prompt and model. Conversation access must be enabled explicitly.
 
 ```bash
-PERCEPTEYE_TRAJECTORY_DIR=/path/to/trajectory-directory
+openclaw plugins install @percepteye/agent-flywheel
 ```
 
-Without `PERCEPTEYE_TRAJECTORY_DIR`, the recorder remains inert.
-
-<Callout kind="info" collapsed="false">
-  These hooks record local tool outcomes only. They do not upload data to Mission Control, claim training rollouts, or apply a model or prompt.
-</Callout>
-
-### Tool outcome mapping
-
-| Client     | Event                        | Recorded outcome |
-| ---------- | ---------------------------- | ---------------- |
-| goose      | `PostToolUse`                | `ok`             |
-| goose      | `PostToolUseFailure`         | `failed`         |
-| Gemini CLI | `AfterTool` with an error    | `failed`         |
-| Gemini CLI | `AfterTool` without an error | `unknown`        |
-
-Reporting excludes `unknown` outcomes from the denominator. An unclassified Gemini CLI result is not counted as either a success or a failure.
-
-## Agent Skills integrations
-
-### Canonical Agent Skill
-
-Use `percepteye-agent-training` for the operator-side Mission Control workflow in compatible Agent Skills clients, including:
-
-- Codex
-- Cursor
-- Gemini CLI
-- GitHub Copilot and VS Code
-- Claude
-- Other compatible Agent Skills clients
-
-The skill is approval-gated. It uses OTEL GenAI traces or data produced by the SDK, launches and monitors server-side training, and handles approval, result, and promotion actions.
-
-The skill does not train models locally.
-
-### Claude Code marketplace plugin
-
-The Claude Code marketplace plugin is a vendored distribution wrapper for the canonical `percepteye-agent-training` skill. It is not a separate SDK or training workflow.
-
-Install the marketplace and plugin with:
+**DeepSeek Harness:** records `tools/result` outcomes only. No practice tasks, no production capture, no prompt or model changes.
 
 ```bash
-claude plugin marketplace add percepteye-ai/percepteye-claude-plugin
-claude plugin install percepteye@percepteye
+dsh plugin --profile <name> add @percepteye/agent-flywheel
 ```
 
-Invoke the skill in Claude Code with:
+To run practice tasks for a DeepSeek Harness agent, serve it as a CLI agent through the Python SDK, with `endpoint_env=("DEEPSEEK_BASE_URL", "DEEPSEEK_API_KEY")`. See [CLI agents](/guides/cli-agents).
 
-```text
-/percepteye:percepteye-agent-training
+## goose
+
+```bash
+pip install agent-flywheel
+agent-flywheel install-hooks
+agent-flywheel status
 ```
 
-The plugin requires Python `>=3.9`, HTTPS access to Mission Control, and a Mission Control account. Configure credentials using the [Authentication](/authentication) documentation.
+The goose plugin records each tool call's outcome. With a key set and training mode, it also claims a practice task at `SessionStart` and reports the session as its result at `Stop`. In production it only records. [Worked example](https://github.com/percepteye-ai/agent-flywheel/tree/main/examples/goose).
+
+## OpenTelemetry
+
+Push GenAI spans to `POST $PERCEPTEYE_CONTROL_PLANE_URL/agents/<agent_id>/otlp/v1/traces` with the agent's `pefw_` key. See [OpenTelemetry push](/guides/opentelemetry-push).

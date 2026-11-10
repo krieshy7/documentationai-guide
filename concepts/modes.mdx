@@ -1,0 +1,85 @@
+---
+title: "Training and production modes"
+description: "One variable decides whether a deployment runs practice tasks or serves users. The same image does either."
+---
+
+```bash
+PERCEPTEYE_AGENT_MODE=training
+PERCEPTEYE_AGENT_MODE=production    # the default when unset
+```
+
+**Training is always an explicit choice.** Since 0.4.0, a deployment that never set the variable is a production deployment, in both SDKs. A training process runs tasks written for your agent through its real tools, so point it at a test or sandbox backend, never the one your users depend on.
+
+<Callout kind="info">
+
+Training also needs a second switch, one on each side. `PERCEPTEYE_AGENT_MODE=training` on your process says it may run practice tasks. **Allow practice runs** on the agent in Mission Control (an org admin turns it on) says the platform may send them. With either one off, no practice task runs, and the side that is off says so. Point a training process at a test or sandbox backend: it runs generated tasks through your agent's real tools.
+
+</Callout>
+
+## What each mode does
+
+### Python SDK
+
+| | `training` | `production` (default) |
+|:--|:--|:--|
+| **Pick it for** | A machine you're happy to lend to practice tasks | The deployment serving your users |
+| `fw.serve(...)` | Claims and runs practice tasks | Returns `0` immediately, before opening any connection |
+| Needs a key | Yes | No |
+| `fw.attach(...)` | Works | Works: this is the production surface |
+
+<Callout kind="info">
+
+The switch gates `serve()` only. It does not gate `attach()`, because `attach()` is the production surface.
+
+</Callout>
+
+### Node plugin (OpenClaw)
+
+| | `training` | `production` (default) |
+|:--|:--|:--|
+| Records tool outcomes locally | Yes | Yes |
+| Alters a tool result | Never | Never |
+| Claims practice tasks and starts turns | Yes | **No** |
+| Captures the turns you serve | n/a | Yes |
+| Uploads them | n/a | Only once an operator enables it |
+| Applies the approved system prompt | No | Yes. Off with `PERCEPTEYE_APPLY_PROMPT=0` |
+| Points your agent at the approved model | No | Yes, with `allowConversationAccess`. Off with `PERCEPTEYE_APPLY_MODEL=0` |
+
+In production the practice-task hooks are not registered at all. Production is not observe-only: applying an approved prompt and model changes what your agent does. What it guarantees is that it claims no work and starts no turn.
+
+In training, neither the prompt nor the model is applied. A practice task is evidence about your agent as configured; changing it mid-flight would move the behavior with no training behind it.
+
+## Accepted spellings
+
+An unrecognized value raises (Python) rather than guessing, because a typo that silently picked `training` would keep spending your credentials.
+
+| Means training | Means production |
+|:--|:--|
+| `training`, `train`, `rollout`, `fine-tuning` | `production`, `prod`, `serving` |
+
+In Python, `mode=` in code beats the variable, then `PERCEPTEYE_AGENT_MODE`, then `production`; the startup line says when code overrode the variable. In the Node plugin, config beats the environment, and an unreadable value degrades to `production` and says so.
+
+## Get the trained model without contributing
+
+A deployment can run no practice tasks and upload nothing, and still use what training produced:
+
+```python
+import agent_flywheel as fw
+
+kw = fw.apply_current_policy(agent_id="my-agent")
+if kw:                      # {} means keep your current configuration
+    client = OpenAI(base_url=kw["base_url"], api_key=kw["api_key"])
+    model = kw["model"]
+```
+
+See [Apply the approved model and prompt](/guides/apply-approved-policy).
+
+## Kill switches (Node plugin)
+
+```bash
+export PERCEPTEYE_CAPTURE=0        # register nothing, record nothing, claim nothing
+export PERCEPTEYE_APPLY_PROMPT=0   # keep recording, leave the system prompt alone
+export PERCEPTEYE_APPLY_MODEL=0    # keep recording, leave the model alone
+```
+
+Each guarantee is the absence of the hook subscription, not a branch inside a handler.

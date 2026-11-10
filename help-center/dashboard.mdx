@@ -1,0 +1,73 @@
+---
+title: "In the dashboard"
+description: "Every Mission Control click path the docs mention, in one place."
+---
+
+## Create a workspace
+
+An email, a password and a six-digit code that confirms the address.
+
+## Get your key
+
+**New mission** → **Your AI agent** → under **How should we get your agent's conversations?**, choose **Add our SDK to your agent's code** → name the agent → **Create agent and get my key**.
+
+The name is the agent id your code reports. The `pefw_` key is shown once and belongs to that one agent. Copy it into your agent's environment as `PERCEPTEYE_API_KEY`. The status panel shows when the agent's first call arrives, then asks for permission and offers **Start improving**.
+
+Only an organization admin can create an agent and its key. A key expires after 180 days.
+
+## Replace a lost key
+
+**Agents** → your agent → **Get a new key**. The old key keeps working until it expires or you revoke it: **Settings** → **Agent keys** → **Revoke**.
+
+## Send us its OpenTelemetry traces
+
+**New mission** → **Your AI agent** → **Also send us the traces your agent already exports** → name the agent → **Create agent and get my key**. Then choose **I run an OpenTelemetry Collector** or **My agent exports directly** and copy what it shows, including the agent's endpoint.
+
+## Connect your observability provider
+
+**New mission** → **Your AI agent** → **Connect your observability provider**. We read your agent's traces from the provider they already go to; nothing changes in your agent.
+
+## Upload a trace file
+
+**New mission** → **Your AI agent** → **Upload a trace file**: an OpenTelemetry export of your agent's traces.
+
+## Allow us to learn from its conversations
+
+During setup, one checkbox: **Let us learn from its conversations, including the message text**. It switches on two permissions, shown separately on the agent's page:
+
+- **Send us its conversations:** the steps of each conversation, which tools were called, what the agent decided.
+- **Include the message text:** the words of each message, and what the model saw.
+
+Learning needs both. Switch them off at any time on the agent's page; your agent notices without a restart. Only an organization admin can change them.
+
+## See what arrived
+
+Your agent's page → **Agent** tab → **What it has sent us to learn from**: turns sent by the SDK and spans pushed over OpenTelemetry, and how many of each are kept but not learned from, and why.
+
+## Start improving
+
+**Start improving**, at the end of setup or on your agent's page. It needs the permission on. If the round is paid from your credits, it shows the most it can cost before it starts.
+
+## Run practice tasks
+
+Your agent's page → **Advanced** → **Generate tasks and run them**, or **Generate, run and improve**. Tasks are written from your agent's own tools and system prompt. Your agent works through them while a process runs with `PERCEPTEYE_AGENT_MODE=training`, which you set explicitly.
+
+## Allow practice runs
+
+Your agent's page → **Allow practice runs**. The platform sends practice tasks only while this is on, and only to a process running in training mode. Only an organization admin can change it.
+
+## Approve the winner in Decisions
+
+**Decisions**, in the sidebar. A new version arrives only after it has beaten your agent's current best on conversations it has never seen. Approve or reject; nothing else decides.
+
+## Try a new version on one agent
+
+Your agent's page → **Agent** tab → **Try the candidate**. **Move back to champion** undoes it.
+
+## Withdraw an approved prompt
+
+**Prompts** → the prompt → *Versions of this prompt* → **Withdraw**.
+
+## Choose what we keep
+
+**Settings** → **Rollout retention**. Off, the default, deletes nothing. On asks us to delete content older than the number of days you set. Only an organization admin can change it.

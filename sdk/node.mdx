@@ -1,0 +1,189 @@
+---
+title: "Node plugin"
+description: "Reference for @percepteye/agent-flywheel, the plugin for OpenClaw and DeepSeek Harness. Install, hooks, modes, configuration and on-disk formats."
+---
+
+Node `>=22.22.3`. Zero runtime dependencies. MIT licensed. Source: [percepteye-ai/agent-flywheel-node](https://github.com/percepteye-ai/agent-flywheel-node).
+
+## Install
+
+```bash
+openclaw plugins install @percepteye/agent-flywheel          # OpenClaw
+dsh plugin --profile <name> add @percepteye/agent-flywheel   # DeepSeek Harness
+```
+
+No import, no wrapper process, no sidecar. Start your agent the way you always did. Requires OpenClaw plugin API `>=2026.7.1`.
+
+Without a key, the plugin records locally and sends nothing, forever. Add a key to start contributing:
+
+```bash
+export PERCEPTEYE_API_KEY=pefw_...
+# or, from the terminal:
+npx @percepteye/agent-flywheel login --agent-id my-agent
+```
+
+## Harness support
+
+| Harness | Records outcomes | Practice tasks | Production capture | Applies approved prompt | Applies approved model |
+|:--|:--|:--|:--|:--|:--|
+| **OpenClaw** | `after_tool_call` | Training mode | Yes | `before_prompt_build` | `before_model_resolve` + a registered provider |
+| **DeepSeek Harness** | `tools/result` | — | — | — | — |
+
+Every recording hook is incapable of altering a run: OpenClaw's `after_tool_call` returns `void`, and dsh's `tools/result` is `@mode emit` over deep-frozen objects. Tool-result mutation seams are never used.
+
+### OpenClaw
+
+**Conversation access.** Set this in your OpenClaw config:
+
+```jsonc
+{ "plugins": { "entries": { "agent-flywheel": {
+    "hooks": { "allowConversationAccess": true } } } } }
+```
+
+It enables three things OpenClaw classes as conversation hooks: reading your agent's answer (`agent_end`), describing your agent (`llm_input`), and pointing it at the approved model (`before_model_resolve`). Without it, the plugin refuses to claim practice tasks and says which capability is missing. Applying the approved prompt does not need it; `allowPromptInjection: false` blocks that half from the host side.
+
+**Multiple agents on one host.** Set `agentId` to the agent this install serves. On a host running several agents with none named, the plugin applies nothing and says so, because guessing would swap a bystander's prompt.
+
+**Practice tasks** need `mode: training` and **Allow practice runs** on in Mission Control; the runner says which switch is off. They run in a dedicated `percepteye-rollout-*` session, never one you are using. If the host closes that seam, the plugin falls back to delivering the task into the next turn you start.
+
+**No `llm_call_count`.** OpenClaw's `llm_input` / `llm_output` hooks bracket a whole attempt, not each provider call, so the plugin reports no count rather than guess.
+
+### DeepSeek Harness
+
+Record-only in every mode. Outcomes are appended to `$PERCEPTEYE_TRAJECTORY_DIR/tool_calls.jsonl`; with that unset, nothing is written. DeepSeek Harness exposes no seam for handing a task to a running agent.
+
+## Modes
+
+| | `training` | `production` (default) |
+|:--|:--|:--|
+| Records tool outcomes locally | Yes | Yes |
+| Claims practice tasks, starts turns | Yes | No (hooks not registered) |
+| Captures the turns you serve | n/a | Yes; uploads once an operator enables it |
+| Applies the approved prompt and model | No | Yes |
+
+Both halves apply only to this agent's own served turns: never a subagent, a scheduled turn, or another agent in the same gateway. See [Modes](/concepts/modes) and [Apply the approved model and prompt](/guides/apply-approved-policy).
+
+## Configuration
+
+Scalar settings go in your OpenClaw config under `plugins.entries.agent-flywheel.config`, or in the environment. **Config wins over the environment**, except for `introspect`, where an opt-out from either side stands.
+
+| Config key | Environment variable | Default | What it decides |
+|:--|:--|:--|:--|
+| `apiKey` | `PERCEPTEYE_API_KEY` | None, then the key `login` stored for this `agentId` | The consent boundary. Without it nothing leaves the machine |
+| `mode` | `PERCEPTEYE_AGENT_MODE` | `production` | Set `training` for practice tasks. An unreadable value degrades to `production` and says so |
+| `agentId` | `PERCEPTEYE_AGENT_ID` | `openclaw` | The agent name reported, and whose approved pair is applied |
+| `controlPlaneUrl` | `PERCEPTEYE_CONTROL_PLANE_URL` | `https://launch.percepteye.ai/api/flywheel/v1` | The control plane |
+| `capture` | `PERCEPTEYE_CAPTURE` | On | `0`/`false`/`no`/`off` registers no hooks and records nothing |
+| `applyPrompt` | `PERCEPTEYE_APPLY_PROMPT` | On | `0` subscribes no prompt hook and does not fetch the prompt |
+| `applyModel` | `PERCEPTEYE_APPLY_MODEL` | On | `0` subscribes no model hook and registers no provider |
+| `introspect` | `PERCEPTEYE_INTROSPECT` | On | `0` registers the agent with no description (your opt-out) |
+| `retentionTurns` | — | None | Keep only the most recent N captured turns on disk |
+| `describe` | — (config only) | None | The agent's `system_prompt`, `tools` and `model`, for what the plugin cannot observe |
+| `rules` | — (config only) | None | Your Product's workflow rules. Unset sends nothing; `[]` retracts |
+| `executionSnapshot` | — (config only) | None | Adapter-owned SHA-256 execution evidence. Missing or invalid evidence abstains |
+
+Directories:
+
+| Variable | Default | Holds |
+|:--|:--|:--|
+| `PERCEPTEYE_HOME` | `~/.percepteye` | Everything the package writes, including `credentials.json` |
+| `PERCEPTEYE_CAPTURE_DIR` | `$PERCEPTEYE_HOME/captured` | Production turn capture |
+| `PERCEPTEYE_TRAJECTORY_DIR` | Unset | Where a training run's outcomes are appended. Whoever runs the task sets it; the plugin only reads it |
+
+### describe
+
+OpenClaw's `llm_input` carries no tool list, so on its own the plugin registers an agent whose tools are unknown, and no task can be generated for it. Declare them:
+
+```json
+"plugins": { "entries": { "agent-flywheel": { "config": { "describe": {
+  "system_prompt": "You triage support tickets.",
+  "tools": [{ "name": "lookup_ticket", "description": "Read one ticket.",
+              "input_schema": { "type": "object", "properties": { "id": { "type": "string" } } },
+              "read_only": true }]
+} } } } }
+```
+
+- `tools` accepts OpenAI function specs, Anthropic tools, or `{name, description, input_schema, read_only}`.
+- `model` is a name or `{model_name, provider, temperature, max_tokens}`.
+- What you declare wins over what was observed. It anchors no execution identity.
+- A bad declaration is dropped with a warning; it never stops the plugin.
+
+It is the Python SDK's `describe=`, read by the same rules.
+
+### rules
+
+```json
+"plugins": { "entries": { "agent-flywheel": { "config": { "rules": [
+  "Before issuing a refund, confirm the order number with the customer.",
+  "Escalate to a human when the customer asks to close their account."
+] } } } }
+```
+
+Declared once per start to `POST /agents/{id}/rulebook`, filed under the one Product that declares this agent, and used as training guidance. Never added to your served prompt. A refusal costs the rules and nothing else; read it as `rulebookRefusal` on the handle `register()` returns, or in the startup warning.
+
+## What it writes
+
+One JSON object per executed tool call, appended to `tool_calls.jsonl`, the same format the Python SDK writes:
+
+```json
+{"name":"exec","arguments":{"command":"exit 3"},"outcome":"failed","status_code":null,"error":"(Command exited with code 3)","error_class":"ToolError","latency_ms":155,"agent_name":"main","tool_call_id":"call_percepteye_1"}
+```
+
+### The training outbox
+
+In training mode, each result the control plane has not acknowledged sits under `$PERCEPTEYE_HOME/outbox/<agentId>/`. It is written before the report is sent and removed when it lands; held results are delivered before the next claim.
+
+| Suffix | Meaning |
+|:--|:--|
+| *(none)* | Not recorded yet; retried before every claim |
+| `.refused-lease-lost` | The lease is gone (what a `410` becomes) |
+| `.refused-contract` | The SDK could not carry the payload |
+| `.refused-400`, `-404`, `-409`, `-422` | Other final statuses |
+| `.stale` | Aged out after seven days; kept |
+
+A refused file is renamed, never deleted, and a warning names its path. `401`, `403` and unrecognized statuses keep retrying. No credential is ever written there.
+
+## CLI
+
+```bash
+npx @percepteye/agent-flywheel login  [--agent-id ID] [--control-plane-url URL] [--no-browser]
+npx @percepteye/agent-flywheel logout [--agent-id ID] [--control-plane-url URL]
+```
+
+`agentId` defaults to `openclaw`. After `login`, restart OpenClaw: the plugin reads the stored key when the gateway starts, whenever `PERCEPTEYE_API_KEY` and `apiKey` are unset.
+
+## Package exports
+
+| Import | Contents |
+|:--|:--|
+| `@percepteye/agent-flywheel` | The plugin (`register`) |
+| `@percepteye/agent-flywheel/customer-api` | `CustomerApiClient`, `CustomerRefusal` |
+| `@percepteye/agent-flywheel/trajectory` | Trajectory reader |
+| `@percepteye/agent-flywheel/classify` | Outcome classification |
+| `@percepteye/agent-flywheel/dsh` | DeepSeek Harness integration |
+| `@percepteye/agent-flywheel/tracing` | OpenTelemetry emission (`@opentelemetry/api` is an optional peer dependency) |
+
+### Customer API client
+
+```js
+import { CustomerApiClient } from "@percepteye/agent-flywheel/customer-api";
+
+const mc = new CustomerApiClient();               // mck_ key: apiKey or PERCEPTEYE_MC_API_KEY
+const runs = await mc.listRuns({ productId: "prod_123", includePromptEvolutions: true });
+const elig = await mc.trainingEligibility({ agentId: "agent_123" });
+const sets = await mc.listEvalSets({ productId: "prod_123", limit: 20 });
+const sec  = await mc.getHillclimbSecurity("run_123");
+```
+
+A refusal throws `CustomerRefusal` with `code`, `refusalMessage`, `customerMessage`, `customerWords`, `remediation`, `faultOwner`, `retryable`. Show `plainWords` to a person.
+
+## Python or Node?
+
+| | Node plugin | Python SDK |
+|:--|:--|:--|
+| You have | An OpenClaw or DeepSeek Harness agent | A Python agent, or a CLI agent you launch yourself |
+| You install | A harness plugin | `pip install agent-flywheel` |
+| The approved prompt | Applied for you | Handed back by `current_prompt()` for you to apply |
+| The approved model | Applied for you through a registered provider | Handed back as an endpoint for you to call |
+
+Pick one per agent, never both.

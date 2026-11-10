@@ -1,0 +1,87 @@
+---
+title: "Outcomes"
+description: "Every tool call is recorded as ok, failed or unknown. Why the third value exists, and how to record a verdict you know."
+---
+
+## Why three values
+
+Transcripts lie about tool outcomes. Two shapes cause most of it:
+
+- **A tool that swallows its own exception.** A LangChain tool with `handle_tool_error=True` returns a string that reads like a normal result, and nothing in the transcript separates it from a success.
+- **A permission denial returned as HTTP 200.** The body explains the refusal; the status says fine.
+
+Scoring either as a success teaches the model that the failure was fine. So the SDKs add a third value, `unknown`, and refuse to round it up.
+
+## The three values
+
+| Value | What it asserts | `status_code` | Graders |
+|:--|:--|:--|:--|
+| `ok` | An observed success | Integer or `null` | Read it as success |
+| `failed` | An observed failure | Integer or `null` | Read it as failure |
+| `unknown` | Nothing observed a verdict | Forced to `null` | Outcome-dependent checks abstain |
+
+There is no fourth value and no default. Anything else raises `ContractViolation`.
+
+**A status is not an outcome.** `status_code` is recorded only when you actually observed one. A status may confirm or contradict an observed outcome; it may never manufacture one. For `unknown`, the SDK also strips status fields (`status_code`, `status`, `http_status`, `code`, `statusCode`) and `HTTP nnn` text from the recorded output, so a scorer cannot recover a status through a side channel.
+
+<Callout kind="info">
+
+An agent with zero instrumentation and no adapter that can classify its calls reports `unknown` for all of them. That is the honest floor, not an error.
+
+</Callout>
+
+## What `unknown` costs
+
+It lowers the grade available to a run; it does not exclude the run. Checks that grade "did this call land" have nothing to read and abstain. A run is excluded automatically for tool reasons only when every call was an observed `failed`.
+
+## Record a verdict you know
+
+Adapters are best-effort. `record_tool_call()` is the always-available ground truth:
+
+```python
+from agent_flywheel import record_tool_call
+
+record_tool_call("charge_card", {"amount": 4200}, outcome="ok", status_code=201)
+
+# A permission denial your API returned as HTTP 200: both halves are true.
+record_tool_call("charge_card", {"amount": 4200},
+                 outcome="failed", status_code=200, error="app_auth_error")
+```
+
+| Argument | Notes |
+|:--|:--|
+| `name`, `arguments` | The tool and the arguments it was called with |
+| `outcome`, `status_code` | Keyword-only and required. You cannot record half an outcome by forgetting one |
+| `output`, `error`, `error_class` | What came back, free-text error, exception class name |
+| `latency_ms` | Optional timing |
+| `agent_name` | Which agent in a multi-agent system made the call. `None` means unattributed |
+| `tool_call_id` | The id the model assigned, the join key back to the completion |
+| `entity_ids` | The identity a write produced, so the control plane can read it back. Never the body |
+
+Outside a practice task, `record_tool_call()` is a no-op, so it can sit in a production code path unconditionally.
+
+From a shell or another language, append one JSON line per call to `$PERCEPTEYE_TRAJECTORY_DIR/tool_calls.jsonl`:
+
+```json
+{"name":"exec","arguments":{"command":"exit 3"},"outcome":"failed","status_code":null,"error":"(Command exited with code 3)","error_class":"ToolError","latency_ms":155,"agent_name":"main","tool_call_id":"call_percepteye_1"}
+```
+
+Both SDKs write and read this same format.
+
+## `None` is not `[]`
+
+| Value | Meaning |
+|:--|:--|
+| `tool_calls = None` | "I did not report tool calls" |
+| `tool_calls = []` | "I observed zero tool calls", a positive claim |
+
+A line that cannot be parsed, such as a write truncated by a timeout, is counted in `tool_calls_omitted_count` rather than dropped.
+
+## See your agent's real failure rate
+
+With nothing but local recording, you can read your agent's true tool-failure rate. No account and no network needed:
+
+```bash
+agent-flywheel report               # most recent session
+agent-flywheel report path/to/trajectory
+```

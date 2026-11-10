@@ -1,106 +1,125 @@
 ---
-title: Quickstart
-description: Run Agent Flywheel with the verified Python SDK, OpenClaw plugin, or DeepSeek Harness path, with clear boundaries for observation and workflow access.
+title: "Quickstart"
+description: "Connect your first agent to Agent Flywheel with the Python SDK, the OpenClaw plugin, or DeepSeek Harness."
 ---
 
 ## Start your first Agent Flywheel integration
 
-Choose the integration that matches your runtime and required access boundary.
-
 | Integration | Best fit | Capability boundary |
-| --- | --- | --- |
-| **Python SDK** | A Python agent exposed through `module:attr` | Serves the agent with `text`, `messages`, or `dict` input |
-| **OpenClaw** | A full workflow integration | Requires conversation access enabled as a separate host permission |
-| **DeepSeek Harness** | Observe-only tracking | Tracks `tools/result` outcomes without controlling rollouts or production turns |
+|:--|:--|:--|
+| **Python SDK** | A Python agent built by an importable `module:attr` factory, or any CLI agent | Practice tasks (`serve()`), production capture (`attach()`), approved model and prompt handed back for you to apply |
+| **OpenClaw** | An OpenClaw agent on Node `>=22.22.3` | Full workflow: recording, practice tasks, production capture, and the approved prompt and model applied for you. Needs conversation access enabled in OpenClaw |
+| **DeepSeek Harness** | A `dsh` agent on Node `>=22.22.3` | Records tool outcomes only. No practice tasks, no production capture, no prompt or model changes |
 
-Setup flow: choose an integration, install its SDK or plugin, configure the required permission or credential, then start the integration using the instructions in its tab.
+Every path has the same shape: get a key, install, start your agent.
 
-<Tabs>
-<Tab title="Python SDK" icon="code">
+## 1. Get a key
 
-Use the Python SDK when your agent entry point is available as a `module:attr` reference. The SDK accepts `text`, `messages`, and `dict` input shapes.
+Sign up at [launch.percepteye.ai](https://launch.percepteye.ai/onboard/agent-sdk), choose **Add our SDK to your agent's code**, name your agent, and copy its `pefw_` key. The key is shown once and is scoped to that one agent. The name you give is the `agent_id` your code reports.
 
-<Steps>
-<Step title="Install the SDK" icon="download">
+You can also get the key from the terminal once the package is installed (step 2):
+
+```bash
+agent-flywheel login --agent-id my-coding-agent          # Python SDK
+npx @percepteye/agent-flywheel login --agent-id my-agent # Node plugin
+```
+
+Either command prints a short code and opens the browser with it filled in. Sign in, check the code matches, and click **Approve**. The key is stored in `~/.percepteye/credentials.json` (mode 0600) and both SDKs read the same file.
+
+## 2. Install and start
+
+### Python SDK
+
+**Install the SDK.** Python 3.10 to 3.13. One runtime dependency, `httpx`.
 
 ```bash
 pip install agent-flywheel
+export PERCEPTEYE_API_KEY=pefw_...
+export PERCEPTEYE_AGENT_MODE=training   # unset means production: serve() runs nothing
 ```
 
-</Step>
+<Callout kind="info">
 
-<Step title="Configure credentials" icon="lock">
+Training takes two switches, one on each side. `PERCEPTEYE_AGENT_MODE=training` on your process says it may run practice tasks. **Allow practice runs** on the agent in Mission Control (an org admin turns it on) says the platform may send them. With either one off, no practice task runs, and the side that is off says so. Point a training process at a test or sandbox backend: it runs generated tasks through your agent's real tools.
 
-Set `PERCEPTEYE_API_KEY` in the environment that starts your agent. Use a key with the `pefw` prefix.
+</Callout>
 
-</Step>
-
-<Step title="Serve your agent" icon="rocket">
-
-Pass your agent's `module:attr` entry point, identifier, and input shape.
+**Serve your agent.** Pass an importable factory so each practice task rebuilds your agent in a fresh child process:
 
 ```python
 import agent_flywheel as fw
 
-fw.serve("my_package.agent:build", agent_id="my-coding-agent", input_shape="text")
+fw.serve(
+    "my_package.agent:build",
+    agent_id="my-coding-agent",
+    input_shape="text",     # "text", "messages" or "dict"
+    max_rollouts=8,         # bound your first run
+)
 ```
 
-Set `input_shape` to `text`, `messages`, or `dict` to match the input your agent accepts.
+`serve()` claims practice tasks, runs them, reports outcomes, and blocks until it stops. Everything that can be misconfigured is checked before the first task and raises there.
 
-</Step>
-</Steps>
+<Callout kind="tip">
 
-</Tab>
-
-<Tab title="OpenClaw" icon="package">
-
-Use the OpenClaw plugin for the full workflow integration. Node `>=22.22.3` is required, and conversation access is a separate host permission from plugin installation.
-
-<Steps>
-<Step title="Install the plugin" icon="download">
-
-```bash
-openclaw plugins install @percepteye/agent-flywheel
-```
-
-</Step>
-
-<Step title="Enable conversation access" icon="users">
-
-Enable conversation access in OpenClaw before using the full workflow. This host permission is separate from installing the plugin.
-
-</Step>
-</Steps>
-
-<Callout kind="info">
-
-Plugin installation does not grant conversation access. Enable the host permission explicitly before using the full workflow.
+Practice tasks are real runs on your real credentials. Bound the first one with `max_rollouts=8` and point `artifacts_dir=` somewhere you don't mind it writing.
 
 </Callout>
 
-</Tab>
+**A CLI agent?** Pass its command line instead. The task arrives on stdin:
 
-<Tab title="DeepSeek Harness" icon="bar-chart">
+```python
+fw.serve(["my-agent", "run"], agent_id="my-cli-agent", input_shape="text")
+```
 
-Use the DeepSeek Harness plugin to track `tools/result` outcomes. Node `>=22.22.3` is required.
+**Already serving users?** Use [`attach()`](/guides/production-capture) to record the turns you serve instead.
 
-<Steps>
-<Step title="Install the plugin" icon="download">
+### OpenClaw
+
+**Install the plugin.** No import, no wrapper process, no sidecar.
+
+```bash
+openclaw plugins install @percepteye/agent-flywheel
+export PERCEPTEYE_API_KEY=pefw_...
+export PERCEPTEYE_AGENT_MODE=training   # for practice tasks; unset means production
+```
+
+**Enable conversation access** in your OpenClaw config. Installing the plugin does not grant it.
+
+```jsonc
+{ "plugins": { "entries": { "agent-flywheel": {
+    "hooks": { "allowConversationAccess": true } } } } }
+```
+
+This lets the plugin read your agent's answer, describe your agent, and point your agent at the approved model. Without it the plugin refuses to claim practice tasks and says so once at startup.
+
+**Restart OpenClaw.** The startup line says which state the plugin is in. If your host runs more than one agent, set `agentId` (see [Node plugin configuration](/sdk/node#configuration)).
+
+### DeepSeek Harness
+
+**Install the plugin** for a `dsh` profile:
 
 ```bash
 dsh plugin --profile <name> add @percepteye/agent-flywheel
 ```
 
-Replace `<name>` with the DeepSeek Harness profile name.
-
-</Step>
-</Steps>
-
 <Callout kind="alert">
 
-DeepSeek Harness is observe-only. It does not claim rollouts, capture production turns, or apply prompt or model changes.
+DeepSeek Harness is record-only. It writes tool outcomes to `PERCEPTEYE_TRAJECTORY_DIR` and, with that unset, writes nothing. It does not claim practice tasks, capture production turns, or apply prompt or model changes.
 
 </Callout>
 
-</Tab>
-</Tabs>
+## 3. Watch the first lap land
+
+The dashboard marks your agent **Connected** on its first call. From there:
+
+1. **Allow practice runs** on the agent's page if this process runs practice tasks.
+2. **Allow learning.** On the agent's page, turn on **Let us learn from its conversations, including the message text**. Until both permissions are on, nothing is uploaded.
+3. **Start improving.** Click **Start improving** on the agent's page.
+4. **Approve the winner** in **Decisions** when a candidate beats your current best.
+5. **Run the approved version.** See [Apply the approved model and prompt](/guides/apply-approved-policy).
+
+## Next steps
+
+- [Concepts](/concepts): what happens on each lap.
+- [Modes](/concepts/modes): the one switch between training and production.
+- [Troubleshooting](/help-center/troubleshooting): if the dashboard never sees your agent.

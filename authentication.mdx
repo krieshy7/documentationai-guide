@@ -1,58 +1,99 @@
 ---
-title: Authentication
-description: Choose the credential required for runtime SDKs, Node plugins, Agent Training Skills, or Mission Control workflows.
+title: "Authentication"
+description: "Which credential each integration uses, how to get it, and how the SDKs resolve it."
 ---
 
 ## Choose a credential
 
-Use one credential based on the integration you are configuring:
+There are two kinds of key. **They are not interchangeable**, and most integrations need only one.
 
-- Python or Node runtime → `PERCEPTEYE_API_KEY` (`pefw_...`)
-- Agent Training Skill or Claude workflow → `PERCEPTEYE_MC_API_KEY` (`mck_...`)
-- OpenClaw conversation capability → separately enable host access
-
-**These credentials are not interchangeable.** Configure only the credential used by your integration. Not every integration needs both.
-
-## Configuration reference
-
-| Purpose | Environment variable | Prefix | Supported integration |
-|---|---|---|---|
-| Runtime access | `PERCEPTEYE_API_KEY` | `pefw_...` | Python SDK, Node SDK, and Node plugin |
-| Mission Control operator access | `PERCEPTEYE_MC_API_KEY` | `mck_...` | Agent Training Skill and Claude plugin workflows |
-
-If your integration uses environment variables, configure only the variable for that integration:
+| Purpose | Environment variable | Prefix | Used by |
+|:--|:--|:--|:--|
+| Your agent talks to the control plane | `PERCEPTEYE_API_KEY` | `pefw_` | Python SDK, Node plugin, OpenTelemetry push |
+| Operator automation: runs, eligibility, approvals | `PERCEPTEYE_MC_API_KEY` | `mck_` | `CustomerApiClient` (Python and Node), the Mission Control API |
 
 ```bash
-PERCEPTEYE_API_KEY=<runtime-key>
-PERCEPTEYE_MC_API_KEY=<mission-control-key>
+PERCEPTEYE_API_KEY=pefw_...       # agent key
+PERCEPTEYE_MC_API_KEY=mck_...     # customer-automation key, only if you automate Mission Control
 ```
 
-The two lines show the available variable names, not a requirement to configure both credentials.
-
-## Runtime integrations
-
-Use `PERCEPTEYE_API_KEY` with a key beginning with `pefw_` for Python and Node runtime integrations.
-
-The Node plugin supports three configuration methods:
-
-- Runtime environment
-- Plugin configuration
-- CLI login flow
-
-## Mission Control workflows
-
-Use `PERCEPTEYE_MC_API_KEY` with a key beginning with `mck_` for the Agent Training Skill and Mission Control operator workflows, including the Claude plugin.
+The customer API client refuses a `pefw_` key before sending anything.
 
 <Callout kind="info">
 
-The Claude plugin requires a Mission Control account, Python 3.9 or later, and an HTTPS connection. OpenClaw conversation access is separate from the credential and must be enabled explicitly when a workflow requires it. A valid key does not grant conversation access.
+OpenClaw's conversation access (`hooks.allowConversationAccess`) is a host permission, not a credential. A valid key does not grant it. See the [Node plugin](/sdk/node).
 
 </Callout>
+
+## Agent keys (`pefw_`)
+
+- **One key per agent.** A `pefw_` key is bound to the agent name it was created for. A key made for a different agent is refused (`this key is bound to a different flywheel`).
+- **Shown once.** Copy it when you create it. If you lose it, create a new one: **Agents** → your agent → **Get a new key**.
+- **Expires after 180 days.** Revoke a key in **Settings** → **Agent keys** → **Revoke**.
+- **Only an organization admin** can create an agent and its key.
+
+### Get one in the dashboard
+
+**New mission** → **Your AI agent** → **Add our SDK to your agent's code** → name the agent → **Create agent and get my key**. The name is the agent id your code reports.
+
+### Get one from the terminal
+
+```bash
+agent-flywheel login --agent-id my-agent              # Python SDK
+npx @percepteye/agent-flywheel login --agent-id my-agent  # Node plugin (default agentId: "openclaw")
+```
+
+The command prints a short code and opens launch.percepteye.ai with the code filled in. Sign up or sign in, check the code matches, and click **Approve**. Add `--no-browser` to print the link instead of opening it.
+
+The key is stored in `~/.percepteye/credentials.json` (or `$PERCEPTEYE_HOME/credentials.json`), mode 0600, for that one agent on that one control plane. Both SDKs read and write the same file, so a key stored by either serves both.
+
+```bash
+agent-flywheel logout --agent-id my-agent             # forget it on this machine
+npx @percepteye/agent-flywheel logout --agent-id my-agent
+```
+
+Logging out forgets the key locally. Revoking it in **Settings** stops it everywhere.
+
+### How the key is resolved
+
+| Order | Python SDK | Node plugin |
+|:--|:--|:--|
+| 1 | `api_key=` argument | `apiKey` in the plugin config |
+| 2 | `PERCEPTEYE_API_KEY` | `PERCEPTEYE_API_KEY` |
+| 3 | Key stored by `login` for this agent on this control plane | Key stored by `login` for this `agentId` on this control plane |
+
+When a stored key is used, the SDK says so once. **A stored key is consent to send, exactly as the variable is.**
+
+With no key at all:
+
+- **Python `serve()`** offers to create one when a person is at the terminal: `No PerceptEye key found for agent 'my-agent'. Create one now (free)? [Y/n]`. It never asks in CI, with `PERCEPTEYE_NO_PROMPT=1`, or when stdin or stderr is not a terminal; there it raises before the first practice task, naming `agent-flywheel login` and the sign-up page.
+- **Python `attach()`** keeps your agent running and records on disk; `px.upload_refusal` says why nothing is sent.
+- **The Node plugin** records locally and sends nothing. Its startup line says so.
+
+## Customer-automation keys (`mck_`)
+
+Get one from the dashboard's **Settings**, or with `pe login`. Pass it as `api_key=` / `apiKey`, or set `PERCEPTEYE_MC_API_KEY`. It authorizes the Mission Control API under `/api/v2` on the same origin as the control plane: see the [Mission Control API](/api-reference/mission-control).
+
+## The control-plane URL
+
+The URL has a default, so the key is the only thing your environment must supply.
+
+| Order | Source |
+|:--|:--|
+| 1 | `control_plane_url=` (Python) or `controlPlaneUrl` (Node config) |
+| 2 | `PERCEPTEYE_CONTROL_PLANE_URL` |
+| 3 | `https://launch.percepteye.ai/api/flywheel/v1` |
+
+`agent-flywheel status` prints the URL the Python SDK resolved.
+
+## Where your key is sent
+
+- **Never in a request body.** Both SDKs replace any `pefw_` key found in a body, for example one a tool printed, with `pefw_[REDACTED]`.
+- **Only to the control plane's own gateway.** When an approved model is served, your `pefw_` key is used for that endpoint only if the control plane names `PERCEPTEYE_API_KEY` for it and the endpoint sits at your control plane's own origin. Any other endpoint's credential comes from your own configuration.
+- **Never to disk by the SDK**, apart from `credentials.json` written by `login`. Practice-task lease tokens stay in memory.
 
 ## Secure credential handling
 
-<Callout kind="alert">
-
-Never paste either credential into chat or commit it to a repository. Provide the key through the integration's configured secure mechanism.
-
-</Callout>
+- Never paste a key into a chat or commit it to a repository.
+- Prefer your host's secret handling: in OpenClaw, put `apiKey` in the plugin config rather than the shell environment.
+- Revoke a key you suspect has leaked in **Settings** → **Agent keys**.

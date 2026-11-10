@@ -1,0 +1,72 @@
+---
+title: "Wire contract"
+description: "The flywheel/1 schema both SDKs share, what an agent may assert, and how a practice task can be excluded."
+---
+
+## One file is the authority
+
+[`schema/flywheel-1.json`](https://github.com/percepteye-ai/agent-flywheel/blob/main/schema/flywheel-1.json) is the wire contract. The Python repository owns it; the Node repository carries a copy, and tests in both hold their types to it. `serve()` refuses to start unless the control plane's `/health` lists `flywheel/1` in `contract_versions_supported`.
+
+## Absence is never collapsed into zero
+
+| Value | Meaning |
+|:--|:--|
+| `tool_calls: null` | "I did not report tool calls" |
+| `tool_calls: []` | "I observed zero tool calls", a positive claim |
+| `outcome: "unknown"` | No verdict observed. Implies `status_code: null` in the schema itself |
+
+## Tool call record
+
+| Field | Required | Notes |
+|:--|:--|:--|
+| `name` | Yes | A call with no resolvable name is dropped, never invented |
+| `outcome` | Yes | `ok`, `failed` or `unknown` |
+| `arguments` | | Object |
+| `status_code` | | Integer only when observed; `null` for `unknown` |
+| `output`, `error`, `error_class` | | Bodies over 4000 characters keep both ends, with a marker counting what was elided |
+| `latency_ms` | | Number |
+| `agent_name` | | `null` means unattributed |
+| `tool_call_id` | | The id the model assigned |
+| `entity_ids` | | The identity a write produced, never the body |
+
+## Exclusions
+
+A practice task can carry one exclusion reason. Excluded results are still reported, so the work product is recorded, but they are not trained on.
+
+| Reason | Meaning |
+|:--|:--|
+| `flywheel_crash` | The SDK's fault: an isolation child exited non-zero, returned an unparseable result, or received no payload |
+| `substrate_unavailable` | Every tool call was an observed `failed`, and at least one was made |
+| `credential_expired` | The lease lapsed mid-run and the child was stopped |
+| `deadline_exceeded` | The entrypoint, child or command exceeded its budget |
+| `entrypoint_error` | The Python entrypoint raised: nothing usable ran, so the work is worth retrying |
+| `agent_exit_nonzero` | A command entrypoint ran and exited non-zero: a real attempt that training should see |
+| `cancelled` | Control-plane vocabulary for work it withdrew. Never emitted by the SDKs |
+| `capacity` | Control-plane vocabulary for work it could not place. Never emitted by the SDKs |
+
+`unknown` outcomes are not an exclusion; they lower the grade available.
+
+## Execution identity
+
+When discovery exactly observes the prompt, tools, model configuration and sub-agent tree, and an execution adapter attests the rest, each task is stamped with `agent_fingerprint.execution_sha256`. Discovery disabled, unreadable or lossy means the field is absent, and consumers that need it refuse rather than train on an unknown agent. Your own `describe=` declaration never anchors an execution identity.
+
+## Control-plane endpoints the SDKs call
+
+All relative to the control-plane URL, all opened from your side.
+
+| Method and path | Called by | Purpose |
+|:--|:--|:--|
+| `GET /health` | `serve()` | Contract check before the first task |
+| `POST /agents` | `serve()`, `attach()`, Node plugin | Register the agent and its description |
+| `POST /rollouts/claim` | `serve()`, Node training | Long-poll for practice tasks |
+| `POST /rollouts/{id}/heartbeat` | Training | Renew the lease |
+| `POST /rollouts/{id}/result` | Training | Report the trajectory and answer |
+| `POST /rollouts/{id}/abandon` | Training | Give back a task that crashed |
+| `GET /agents/{id}/capture` | Production | May this agent upload? |
+| `POST /turns` | Production | Upload captured turns, at most 64 per request |
+| `POST /agents/{id}/rulebook` | When `rules` is set | Declare the Product's workflow rules |
+| `GET /policy/current` | Production readers | The approved model |
+| `GET /prompt/current` | Production readers | The approved system prompt |
+| `POST /agents/{id}/otlp/v1/traces` | Your OpenTelemetry exporter | Push GenAI spans |
+
+See the [Control plane API](/api-reference/control-plane) for the endpoints you might call directly.

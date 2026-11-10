@@ -1,85 +1,74 @@
 ---
-title: Core Concepts
-description: Understand how Agent Flywheel captures runtime evidence, generates tasks, grades outcomes, trains candidates, and promotes approved agent behavior.
+title: "Core Concepts"
+description: "How evidence is captured, tasks generated, outcomes graded, candidates trained, and approved behavior delivered back to your agent."
 ---
 
 ## Agent Flywheel architecture
 
 ```text
-Agent or runtime SDK/plugin
-        |
-        | outbound runtime evidence and workflow state
-        v
-Mission Control [server-side work]
-        |
-        +--> Generate tasks
-        +--> Grade outcomes
-        +--> Train candidate
-        +--> Compare current versus candidate
-        +--> Approve promotion
+ YOUR INFRASTRUCTURE                    │  PERCEPTEYE CONTROL PLANE
+                                        │
+ your agent (unchanged)                 │
+   ↕ SDK or plugin                      │
+   ├─ describe the agent (once) ───────►│  register; tasks from your real tool surface
+   ├─ claim a practice task ───────────►│  lease + heartbeat
+   ├─ run it, record outcomes          │
+   ├─ report trajectory + answer ──────►│  grade → dataset → train → evaluate
+   ├─ upload served turns (opt-in) ────►│  learn from production; evolve the prompt
+   └─ read /policy/current,  ◄──────────┤  serve what a person approved
+      /prompt/current                   │
+                                        │
+ every arrow is opened from your side   │  no inbound port, no listening socket
 ```
 
-Mission Control handles task generation, grading, training, promotion, and candidate-versus-current evaluation on the server. The local SDK or plugin connects outbound to Mission Control and does not reproduce those server-side operations.
+The SDK or plugin never reproduces server-side work. Task generation, grading, training, prompt optimization and evaluation run on PerceptEye's GPUs.
 
 ## Agent Flywheel lifecycle
 
-<Steps>
-  <Step title="Capture runtime evidence" icon="database">
+**⓪ Describe.** Once at startup, the SDK reads the shape of your agent from inside its own process: the system prompt it really assembled, the tools it really registered (names, descriptions, JSON Schemas), provider and model, and sub-agents to depth 4. Never your tools' source, their return values, your credentials or your data. Turn it off with `introspect=False` or `PERCEPTEYE_INTROSPECT=0`. An agent nothing can read declares itself with `describe=`.
 
-  The runtime SDK or plugin captures agent activity and tool evidence. Python integrations can provide explicit ground truth with `record_tool_call()`.
+**① Claim.** In training mode, your process long-polls for a practice task (a *rollout*). Leases heartbeat while the task runs. Results held from earlier runs are delivered before new work is claimed.
 
-  </Step>
-  <Step title="Generate tasks" icon="zap">
+**② Run.** Each task runs in a fresh child process with its own environment and a single-use credential. Your agent is unchanged.
 
-  Mission Control uses captured data to generate tasks for the flywheel.
+**③ Record.** Every tool call lands as `ok`, `failed` or `unknown`, from adapters that observe from the outside or from an explicit `record_tool_call()`. Artifacts are collected on every path, including timeouts and non-zero exits.
 
-  </Step>
-  <Step title="Grade outcomes" icon="bar-chart">
+**④ Grade and train.** Tasks generated from your real tool surface are graded against compiled checks. Graded runs become the dataset; the policy is trained and each candidate is measured against the model you run today.
 
-  Mission Control grades task results from the available evidence. Outcomes are `ok`, `failed`, or `unknown`.
-
-  </Step>
-  <Step title="Train a candidate" icon="rocket">
-
-  Mission Control trains a candidate from eligible data.
-
-  </Step>
-  <Step title="Evaluate and approve" icon="check-circle">
-
-  Mission Control compares candidate behavior with the current version. Promotion requires approval after the comparison meets your requirements.
-
-  </Step>
-</Steps>
+**⑤ Improve.** A person approves the candidate in Decisions. Your production agent picks up the approved model and prompt. The next lap runs on the better agent, which generates better evidence.
 
 ## Runtime and operator responsibilities
 
-| Responsibility | Runtime integration | Operator skill |
-| --- | --- | --- |
-| Primary role | Produces runtime evidence. | Manages the Mission Control workflow. |
-| Data source | Uses the runtime SDK or plugin to capture activity and tool evidence. | Uses eligible OTEL trace exports or data produced by the SDK. |
-| Training and promotion | Does not reproduce server-side workflow operations. | Manages server-side training, grading, promotion, and related workflow operations. |
-| Local training | Depends on the runtime integration mode. | Does not perform local training. |
+| | Runtime integration (SDK or plugin) | Operator (dashboard or `mck_` key) |
+|:--|:--|:--|
+| **Primary role** | Produce evidence; apply what was approved | Decide what trains and what ships |
+| **Data source** | Your agent's own runs and served turns | What the runtime sent |
+| **Training and promotion** | Never trains, never promotes | Starts rounds, approves or rejects candidates |
+| **Local training** | None | None: training runs on the control plane |
 
 ### Runtime method reference
 
-| API or mode | Behavior | Boundary |
-| --- | --- | --- |
-| `serve()` | Runs training rollouts and supports the rollout process used to produce training data and candidate behavior. | Claims rollouts for the training workflow. |
-| `attach()` | Captures an existing production process without claiming rollouts. | Captures production activity but does not provide training rollouts. |
-| `record_tool_call()` | Supplies explicit ground truth when the application knows the actual result of a tool operation. | Records the application's known verdict for a tool operation. |
-
-Capture capabilities depend on the runtime SDK or plugin you use.
+| Method | Python | Node plugin | Purpose |
+|:--|:--|:--|:--|
+| Practice tasks | `serve()` | Training mode (OpenClaw) | Claim graded tasks, run them, report outcomes |
+| Production capture | `attach()` | Production mode (OpenClaw) | Record the turns you already serve; upload only once enabled |
+| Explicit outcome | `record_tool_call()` | Shell append to `tool_calls.jsonl` | Record a verdict you know |
+| Approved model | `apply_current_policy()`, `policy_source()` | Applied automatically | Point your agent at the approved endpoint |
+| Approved prompt | `current_prompt()`, `prompt_decision()` | Applied automatically | Swap in the approved system prompt |
 
 ## Outcome statuses
 
 | Status | Meaning |
-| --- | --- |
+|:--|:--|
 | `ok` | Observed success |
 | `failed` | Observed failure |
-| `unknown` | No trustworthy verdict |
+| `unknown` | No trustworthy verdict. Legal, expected, and never counted as a success |
 
-<Callout kind="alert">
+Details in [Outcomes](/concepts/outcomes).
 
-An `unknown` outcome is never a success. Preserve it when the available evidence does not support a trustworthy success or failure verdict.
+## Learn more
 
-</Callout>
+- [Outcomes](/concepts/outcomes): the tri-state verdict and why `unknown` matters.
+- [Modes](/concepts/modes): training versus production.
+- [Approvals](/concepts/approvals): how a change reaches your users.
+- [Wire contract](/advanced/wire-contract): the schema both SDKs share.

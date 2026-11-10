@@ -1,0 +1,41 @@
+---
+title: "Approvals"
+description: "Nothing reaches your users until a person approves it. How the model and the prompt are each gated, and how to roll back."
+---
+
+## The model
+
+Your agent keeps serving the model it runs today, the **champion**, until all three of these hold. Each one fails closed back to the champion.
+
+1. **A person with the operator role moves that agent onto the candidate** from the dashboard (**Agent** tab → **Try the candidate**). It is an explicit, role-gated call on that one agent. Your agent's own `pefw_` key cannot make it. Moving back (**Move back to champion**) is the same call, which is what makes rollback fast enough to use during an incident.
+2. **The candidate's certification did not go against it.** A verdict of `regressed`, `inconclusive` or `escalated` makes it unservable.
+3. **It is deployed somewhere your agent can call.** A stored artifact (`gs://`, `s3://`, `file://`) is refused rather than handed out as a model name. Both SDKs re-check this on your side.
+
+## The prompt
+
+A separate chain with its own approval. Each winning prompt arrives in **Decisions** as one *prompt-pair delivery*: the prompt, the checkpoint it was certified with, and a 2×2 evaluation (base or tuned model × your prompt or the new one). Only a delivery with status `approved` or `delivered` is ever served, and both SDKs re-check that status before the text is applied.
+
+Delivery statuses: `pending_approval`, `approved`, `delivered`, `superseded` (with `superseded_by` naming its replacement), `withdrawn`.
+
+## No language model can approve
+
+Model promotion, prompt-pair delivery and research promotion are classed as irreversible decisions. Only the explicit approve or reject control resolves them. A reply such as "sure, go ahead" in a chat or a document is recorded as *answered*, never as *approved*.
+
+## What runs on its own
+
+Starting optimization rounds, certifying a winner and assembling a delivery are automatic by default. `GET /api/v2/autonomy/flags` shows each setting. **Approval is never automatic**: "auto" means the next candidate is ready and waiting, not that it ships itself.
+
+## Approve, reject, withdraw
+
+| Action | In the dashboard | Over the API (`mck_` key) |
+|:--|:--|:--|
+| Approve | **Decisions** → Approve | `POST /api/v2/approvals/{approval_id}/approve` |
+| Reject | **Decisions** → Reject | Reject control in Decisions |
+| Withdraw an approved prompt | **Prompts** → the prompt → *Versions of this prompt* → **Withdraw** | `POST /api/v2/prompt-deliveries/{delivery_id}/withdraw` |
+| Roll back the model | Agent page → **Move back to champion** | Operator role, dashboard only |
+
+A withdrawn prompt stops being served at once. The previously approved prompt serves again, or, if there is none, running agents return to their own prompt within one refresh. A withdrawn prompt cannot be approved back; approve a newer delivery instead.
+
+You can also stop applying on your side at any time: don't apply the served prompt (Python), or set `PERCEPTEYE_APPLY_PROMPT=0` / `PERCEPTEYE_APPLY_MODEL=0` (Node).
+
+See the [Mission Control API](/api-reference/mission-control) for request and response details.

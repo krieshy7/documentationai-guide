@@ -1,0 +1,85 @@
+---
+title: "Mission Control API"
+description: "The customer-automation API under /api/v2 for runs, eligibility, evaluation sets, approvals and prompt deliveries."
+---
+
+## Base URL and authentication
+
+The API lives on the same origin as the control plane, under `/api/v2`:
+
+```text
+https://launch.percepteye.ai/api/v2
+Authorization: Bearer mck_...
+```
+
+It needs a customer-automation key (`mck_`), from `pe login` or the dashboard's **Settings**. An agent key (`pefw_`) is refused. In code, use the `CustomerApiClient` in [Python](/sdk/python#customer-api-client) or [Node](/sdk/node#customer-api-client).
+
+## Refusals
+
+A refused request returns a body with `code`, `message`, `customer_message`, `customer_words`, `remediation`, `fault_owner` and `retryable`. The clients raise it as `CustomerRefusal`; show its plain words to a person.
+
+## Health
+
+`GET /health`. `customer_contract_versions_supported` lists the contract majors the server speaks. `CustomerApiClient.supports_contract()` checks it.
+
+## Runs
+
+`GET /runs`
+
+| Query parameter | Notes |
+|:--|:--|
+| `status` | Filter by status |
+| `limit`, `offset` | Paging. Paging past the server's depth is refused `run_page_too_deep`; use `started_before` |
+| `started_after`, `started_before` | Time window |
+| `product_id` | One Product's runs |
+| `include_background` | Include background runs |
+| `include_prompt_evolutions` | Each prompt evolution as one row (`prompt_evolution` set) in place of its arms |
+
+Each run names what it was for (`target_id`, `target_kind`, `target_name`), and `certifies_run_id` / `chain_parent_run_id` place it in its chain.
+
+## Training eligibility
+
+`GET /training/eligibility?agent_id=...` or `?product_id=...`
+
+`prompt_optimization` says whether prompt runs are on and, for that agent or Product: `mode` (`live`, `offline` or `null`), `can_run`, `needs`, `message`, `preparation_run_id`, `algorithms`, `affordable`, `model_under_test`, and `security`.
+
+## Evaluation sets
+
+`GET /eval-sets?product_id=...&limit=...&offset=...`
+
+## Security measurement
+
+`GET /hillclimbs/{run_id}/security`. The run's security measurement; `measurement.state` is its state.
+
+## Approvals
+
+`POST /approvals/{approval_id}/approve`
+
+```bash
+curl -X POST "$MC/api/v2/approvals/$APPROVAL_ID/approve" \
+  -H "Authorization: Bearer $MCK" -H "Content-Type: application/json" -d '{}'
+```
+
+The response's `context.completion` is `confirmed`, or `refused` with the reason. Only this explicit control (or Approve in **Decisions**) resolves an irreversible decision. See [Approvals](/concepts/approvals).
+
+## Prompt deliveries
+
+`GET /prompt-deliveries` lists deliveries with `status`: `pending_approval`, `approved`, `delivered`, `superseded` (with `superseded_by`), or `withdrawn`.
+
+`POST /prompt-deliveries/{delivery_id}/withdraw` stops an approved prompt being served at once.
+
+```bash
+curl -X POST "$MC/api/v2/prompt-deliveries/$DELIVERY_ID/withdraw" \
+  -H "Authorization: Bearer $MCK" -H "Content-Type: application/json" \
+  -d '{"reason": "answers got too long"}'
+```
+
+A withdrawn prompt cannot be approved back into service; approve a newer delivery instead.
+
+## Autonomy flags
+
+`GET /autonomy/flags` shows whether optimization rounds, certification and delivery assembly run automatically. Approval is never automatic.
+
+## Product rulebook
+
+`PUT /products/{product_id}/rulebook` sets a Product's workflow rules, writing the same versions as the SDKs' `rules=`. Whichever wrote last is in force, and every write is audited.

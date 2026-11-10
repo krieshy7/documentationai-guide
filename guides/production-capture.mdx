@@ -1,0 +1,105 @@
+---
+title: "Production capture"
+description: "Record the turns your agent already serves, and upload them only after an operator enables it."
+---
+
+## Capture is opt-in, twice
+
+| Permission | What it allows | Default |
+|:--|:--|:--|
+| **Send us its conversations** | Upload each turn: the steps, which tools were called, what the agent decided | Off |
+| **Include the message text** | Also record and upload what the model saw: system prompt, history, tool definitions, every tool result, as one OpenTelemetry GenAI trace (`genai_trace`) | Off |
+
+Both are switched on together in setup with **Let us learn from its conversations, including the message text**, and shown separately on the agent's page. Learning needs both. Only an organization admin can change them, and your agent notices without a restart.
+
+Until upload is allowed, turns accumulate on your own disk and go nowhere. The model-content tier is granted only while exactly one active Product declares the agent.
+
+## Python: `attach()`
+
+```python
+import agent_flywheel as fw
+
+px = fw.attach(agent_id="support-agent", trajectory_root="/var/lib/percepteye")
+
+with px.turn(task_id=case_id, conversation_id=conv_id,
+             input_text=user_text) as turn_id:
+    reply = agent.invoke(user_text)       # your agent, unmodified
+
+px.record_answer(turn_id, reply)          # after the scope closes
+```
+
+**It captures. It never reroutes.** Adapters bind with no endpoint, so attaching cannot redirect production traffic. **Everything fails open:** an unreachable control plane costs the observation and nothing else.
+
+- **Declare turn boundaries.** `turn()` is a context manager that yields the turn id. Give every turn of one conversation the same `conversation_id`.
+- **Pass the text yourself.** `input_text=` and `record_answer()` carry your end user's message and your answer, which no adapter can tell apart from the rest of a model call. A turn with no answer is held back from the 32-turn upload.
+- **`task_id=` is optional correlation** for your own case, job or ticket. It grants no training eligibility.
+- **Model content** is observed automatically for LangChain, LangGraph and Google ADK agents when the second permission is on. For any other agent, [push its OpenTelemetry traces](/guides/opentelemetry-push).
+
+### When turns are sent
+
+Once upload is allowed, answered turns go every 32 turns on a short-lived daemon thread, and an `atexit` hook sends the rest. Uploads never raise into your process and never block a turn. While upload is not allowed, the SDK re-reads the permission before each batch, so no restart is needed.
+
+```python
+px.may_upload                  # live answer
+px.upload_refusal              # the sentence explaining a False
+px.may_capture_model_content
+px.model_content_refusal
+px.flush()                     # send now
+px.close()                     # unbind and send what is waiting
+```
+
+### Your copy on disk
+
+Every turn is a directory under `trajectory_root`. Uploading does not delete it. Left alone it grows roughly 2.4 GB per million recording turns, so bound it:
+
+```python
+px = fw.attach(agent_id="a", trajectory_root="/var/lib/percepteye",
+               retention_turns=50_000)    # keep the most recent 50k turns
+
+px.prune(keep_last=10_000)
+px.prune(older_than_s=7 * 24 * 3600)
+```
+
+`PERCEPTEYE_AGENT_MODE` does not gate `attach()`. To stop capture, don't call it, or pass `register=False` to keep everything local.
+
+Full parameter list: [Python SDK reference](/sdk/python#attach).
+
+## Node plugin: production mode
+
+```bash
+export PERCEPTEYE_AGENT_MODE=production
+```
+
+With a key set, the plugin registers your agent at startup, then asks whether it may upload. Each turn is written as one directory:
+
+```text
+$PERCEPTEYE_CAPTURE_DIR/<runId>/       # default ~/.percepteye/captured
+    turns.jsonl               # {"kind":"task"|"answer","text","turn_id","conversation_id","task_id"}
+    conversation_id
+    task_id                   # optional correlation id
+    tool_calls.jsonl
+    genai_observation.jsonl   # only under the model-content tier
+```
+
+This is the same on-disk format the Python SDK writes. Turns upload every 32 turns and at gateway shutdown, once enabled. If the control plane refuses a batch (consent withdrawn, or the key lost its scope), the plugin stops uploading, says why, and keeps the turns on disk.
+
+Recording model content needs `hooks.allowConversationAccess: true`. A run the plugin cannot reconstruct faithfully records no model boundary rather than a guessed one.
+
+## Personal data
+
+Everything received is scanned for email addresses, phone numbers, card numbers, US social security numbers and IP addresses. In tool-call records a match is masked. In messages and model content it is kept as sent, and that turn is never learned from. The SDKs mask nothing on your side.
+
+## Production turns are advisory
+
+Production turns were produced by whatever you run, so they inform training rather than being graded as practice tasks are. Training capacity comes from `serve()` or the plugin's training mode.
+
+## Workflow rules
+
+Declare your Product's workflow rules once per start: prose rules a person would tell a new colleague, used as training guidance for the decisions they apply to. They never change what your agent is served.
+
+```python
+px = fw.attach(agent_id="support-agent", trajectory_root="/var/lib/percepteye",
+               rules=["Before issuing a refund, confirm the order number with the customer."])
+```
+
+In the Node plugin, set `rules` in the plugin config. `None` / unset sends nothing, `[]` retracts, and the last writer wins. A refusal never stops your agent: read `px.rulebook_refusal` (Python) or the startup warning (Node).
